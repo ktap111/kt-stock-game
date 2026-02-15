@@ -103,7 +103,8 @@
     const [user, setUser] = useState(null);
     const [portfolio, setPortfolio] = useState(null);
     const [ktRankings, setKtRankings] = useState([]);
-    const [sharesInput, setSharesInput] = useState('');
+    const [sharesInputVersion, setSharesInputVersion] = useState(0);
+    const sharesInputRef = useRef(null);
     const [leaderboard, setLeaderboard] = useState([]);
     const [showLeaderboard, setShowLeaderboard] = useState(false);
     const [debugMode, setDebugMode] = useState(false);
@@ -332,7 +333,7 @@
           if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(updatedPortfolio)); } catch (err) { logError('buyStock - save', err); }
           await updateLeaderboard(user, updatedPortfolio);
           setSelectedStock(null);
-          setSharesInput('');
+          if (sharesInputRef.current) sharesInputRef.current.value = '';
         } catch (err) { logError('buyStock', err); alert('❌ Purchase failed: ' + err.message); }
       })();
     }
@@ -545,7 +546,7 @@
           searchResults.length > 0 ? e('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '15px' } }, searchResults.map(function(stock) {
             if (stock.searching) return e('div', { key: 'searching', style: { background: '#e8f0fe', padding: '20px', borderRadius: '15px', border: '2px solid #667eea', textAlign: 'center', fontSize: '18px', color: '#667eea' } }, '🔍 Checking "' + stock.symbol + '"...');
             if (stock.notFound) return e('div', { key: stock.symbol, style: { background: '#fff3e0', padding: '20px', borderRadius: '15px', border: '2px solid #ff9800' } }, e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: '#f57c00', marginBottom: '10px' } }, '❌ "' + stock.symbol + '" not found'), e('div', { style: { fontSize: '14px', color: '#666', lineHeight: '1.5' } }, stock.message));
-            return e('div', { key: stock.symbol, onClick: function() { setSelectedStock(stock); setSharesInput(''); setSearchResults([]); if (searchInputRef.current) searchInputRef.current.value = ''; }, style: { display: 'flex', alignItems: 'center', gap: '15px', background: 'white', padding: '15px', borderRadius: '15px', cursor: 'pointer', border: '2px solid #667eea' } },
+            return e('div', { key: stock.symbol, onClick: function() { setSelectedStock(stock); setSearchResults([]); if (searchInputRef.current) searchInputRef.current.value = ''; setTimeout(function() { if (sharesInputRef.current) sharesInputRef.current.value = ''; }, 0); }, style: { display: 'flex', alignItems: 'center', gap: '15px', background: 'white', padding: '15px', borderRadius: '15px', cursor: 'pointer', border: '2px solid #667eea' } },
               e('div', { style: { flex: 1 } }, e('div', { style: { fontSize: '24px', fontWeight: 'bold', color: '#667eea' } }, stock.symbol, e('span', { style: { fontSize: '16px', color: '#999', fontWeight: 'normal', marginLeft: '8px' } }, stock.name || COMPANY_NAMES[stock.symbol] || '')), e('div', { style: { fontSize: '16px', color: '#666' } }, '$' + stock.price.toFixed(2))),
               e('div', { style: { flex: 1 } }, e('div', { style: { fontSize: '16px', fontWeight: 'bold', color: '#667eea', marginBottom: '5px' } }, 'KT: ' + stock.ktValue.toFixed(0)), e('div', { style: { background: '#e0e0e0', height: '10px', borderRadius: '5px', overflow: 'hidden' } }, e('div', { style: { background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)', height: '100%', width: stock.ktValue + '%' } }))),
               e('div', { style: { fontSize: '18px', fontWeight: 'bold', color: '#667eea' } }, 'Click to Buy →')
@@ -585,7 +586,7 @@
           e('p', { style: { fontSize: '14px', color: '#666', marginBottom: '5px', textAlign: 'center' } }, 'KT Score = Sentiment (40%) + Technicals (35%) + Leadership (25%)'),
           e('p', { style: { fontSize: '12px', color: '#999', marginBottom: '15px', textAlign: 'center', fontStyle: 'italic' } }, 'Showing buyable stocks only (max 25% of portfolio per position)'),
           e('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '500px', overflowY: 'auto' } }, ktRankings.filter(function(stock) { return isBuyable(stock, portfolio.totalValue); }).slice(0, 20).map(function(stock, index) {
-            return e('div', { key: stock.symbol, onClick: function() { setSelectedStock(stock); setSharesInput(''); }, style: { display: 'flex', alignItems: 'center', gap: '15px', background: '#f8f8f8', padding: '15px', borderRadius: '15px', cursor: 'pointer', border: '2px solid transparent' } },
+            return e('div', { key: stock.symbol, onClick: function() { setSelectedStock(stock); setTimeout(function() { if (sharesInputRef.current) sharesInputRef.current.value = ''; }, 0); }, style: { display: 'flex', alignItems: 'center', gap: '15px', background: '#f8f8f8', padding: '15px', borderRadius: '15px', cursor: 'pointer', border: '2px solid transparent' } },
               e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: '#667eea', minWidth: '40px' } }, '#' + (index + 1)),
               e('div', { style: { flex: 1 } }, e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: '#333' } }, stock.symbol, e('span', { style: { fontSize: '14px', color: '#999', fontWeight: 'normal', marginLeft: '8px' } }, stock.name || COMPANY_NAMES[stock.symbol] || '')), e('div', { style: { fontSize: '16px', color: '#666' } }, '$' + stock.price.toFixed(2))),
               e('div', { style: { flex: 2 } }, e('div', { style: { fontSize: '16px', fontWeight: 'bold', color: '#667eea', marginBottom: '5px' } }, 'KT: ' + stock.ktValue.toFixed(0)), e('div', { style: { background: '#e0e0e0', height: '10px', borderRadius: '5px', overflow: 'hidden' } }, e('div', { style: { background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)', height: '100%', width: stock.ktValue + '%', transition: 'width 0.3s' } })))
@@ -607,13 +608,13 @@
             ),
             e('div', null,
               e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', marginBottom: '10px' } }, 'How many shares?'),
-              e('input', { type: 'text', inputMode: 'numeric', placeholder: 'Enter number of shares', value: sharesInput, onChange: function(ev) { setSharesInput(ev.target.value.replace(/\D/g, '')); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '20px', marginBottom: '15px', fontFamily: 'Comic Sans MS, cursive' } }),
-              e('div', { style: { fontSize: '24px', fontWeight: 'bold', textAlign: 'center', color: '#667eea', marginBottom: '20px' } }, 'Total: $' + (function() { var n = parseInt(sharesInput, 10) || 0; return n > 0 ? (selectedStock.price * n).toFixed(2) : '0.00'; })()),
+              e('input', { ref: sharesInputRef, type: 'text', inputMode: 'numeric', placeholder: 'Enter number of shares', defaultValue: '', onChange: function(ev) { var v = ev.target.value.replace(/\D/g, ''); ev.target.value = v; setSharesInputVersion(function(x) { return x + 1; }); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '20px', marginBottom: '15px', fontFamily: 'Comic Sans MS, cursive' } }),
+              e('div', { style: { fontSize: '24px', fontWeight: 'bold', textAlign: 'center', color: '#667eea', marginBottom: '20px' } }, 'Total: $' + (function() { var raw = sharesInputRef.current ? sharesInputRef.current.value : ''; var n = parseInt(raw, 10) || 0; return n > 0 ? (selectedStock.price * n).toFixed(2) : '0.00'; })()),
               e('button', {
-                onClick: function() { var n = parseInt(sharesInput, 10) || 0; buyStock(selectedStock, n); },
-                disabled: (function() { var n = parseInt(sharesInput, 10) || 0; return n === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * n; })(),
-                style: (function() { var n = parseInt(sharesInput, 10) || 0; var dis = n === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * n; return { background: dis ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: dis ? 'not-allowed' : 'pointer', fontFamily: 'Comic Sans MS, cursive', width: '100%' }; })()
-              }, (function() { var n = parseInt(sharesInput, 10) || 0; return portfolio.holdings.length >= 10 ? '❌ Max 10 Stocks' : n === 0 ? 'Enter shares to buy' : 'Buy ' + n + ' shares! 💰'; })())
+                onClick: function() { var raw = sharesInputRef.current ? sharesInputRef.current.value : ''; var n = parseInt(raw, 10) || 0; buyStock(selectedStock, n); },
+                disabled: (function() { var raw = sharesInputRef.current ? sharesInputRef.current.value : ''; var n = parseInt(raw, 10) || 0; return n === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * n; })(),
+                style: (function() { var raw = sharesInputRef.current ? sharesInputRef.current.value : ''; var n = parseInt(raw, 10) || 0; var dis = n === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * n; return { background: dis ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: dis ? 'not-allowed' : 'pointer', fontFamily: 'Comic Sans MS, cursive', width: '100%' }; })()
+              }, (function() { var raw = sharesInputRef.current ? sharesInputRef.current.value : ''; var n = parseInt(raw, 10) || 0; return portfolio.holdings.length >= 10 ? '❌ Max 10 Stocks' : n === 0 ? 'Enter shares to buy' : 'Buy ' + n + ' shares! 💰'; })())
             )
           )
         ) : null
