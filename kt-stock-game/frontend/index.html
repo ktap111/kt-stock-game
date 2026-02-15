@@ -95,7 +95,6 @@
   const MAX_POSITION_PCT = 25;
   const POPULAR_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'JPM', 'V', 'WMT', 'DIS', 'NFLX', 'BA', 'KO', 'PEP', 'NKE', 'MCD', 'SBUX', 'COST', 'HD'];
   const COMPANY_NAMES = { 'AAPL': 'Apple', 'MSFT': 'Microsoft', 'GOOGL': 'Google', 'AMZN': 'Amazon', 'NVDA': 'NVIDIA', 'TSLA': 'Tesla', 'META': 'Meta', 'JPM': 'JPMorgan Chase', 'V': 'Visa', 'WMT': 'Walmart', 'DIS': 'Disney', 'NFLX': 'Netflix', 'BA': 'Boeing', 'KO': 'Coca-Cola', 'PEP': 'PepsiCo', 'NKE': 'Nike', 'MCD': "McDonald's", 'SBUX': 'Starbucks', 'COST': 'Costco', 'HD': 'Home Depot' };
-  const SECTORS = ['Technology', 'Healthcare', 'Financial', 'Consumer', 'Energy', 'Industrial', 'Materials', 'Utilities', 'Real Estate', 'Communications'];
   const KT_BASELINES = { 'NVDA': { sentiment: 92, technical: 88, leadership: 95 }, 'AAPL': { sentiment: 85, technical: 82, leadership: 90 }, 'MSFT': { sentiment: 88, technical: 85, leadership: 92 }, 'GOOGL': { sentiment: 80, technical: 78, leadership: 85 }, 'AMZN': { sentiment: 82, technical: 80, leadership: 88 }, 'TSLA': { sentiment: 75, technical: 70, leadership: 82 }, 'META': { sentiment: 78, technical: 75, leadership: 80 }, 'NFLX': { sentiment: 72, technical: 68, leadership: 75 }, 'V': { sentiment: 70, technical: 72, leadership: 78 }, 'JPM': { sentiment: 68, technical: 70, leadership: 75 }, 'WMT': { sentiment: 65, technical: 68, leadership: 72 }, 'DIS': { sentiment: 60, technical: 58, leadership: 68 }, 'KO': { sentiment: 62, technical: 60, leadership: 70 }, 'PEP': { sentiment: 63, technical: 62, leadership: 68 }, 'MCD': { sentiment: 61, technical: 59, leadership: 65 }, 'NKE': { sentiment: 58, technical: 55, leadership: 62 }, 'SBUX': { sentiment: 56, technical: 54, leadership: 60 }, 'BA': { sentiment: 52, technical: 50, leadership: 58 }, 'COST': { sentiment: 66, technical: 64, leadership: 70 }, 'HD': { sentiment: 64, technical: 62, leadership: 68 } };
 
   function KT_STOCK_GAME() {
@@ -150,8 +149,6 @@
             var baseline = KT_BASELINES[raw.symbol] || { sentiment: 60, technical: 60, leadership: 60 };
             var sentiment = baseline.sentiment, technical = baseline.technical, leadership = baseline.leadership;
             if (raw.changePercent != null) technical = Math.max(0, Math.min(100, technical + raw.changePercent * 2));
-            if (user && user.riskTolerance === 'high') technical += 5; else if (user && user.riskTolerance === 'low') leadership += 5;
-            if (user && user.returnGoal === 'short') technical += 3; else if (user) leadership += 3;
             var ktValue = sentiment * 0.4 + technical * 0.35 + leadership * 0.25;
             var stock = { symbol: raw.symbol, name: raw.name || raw.symbol, ktValue: ktValue, sentiment: sentiment, technical: technical, leadership: leadership, price: raw.price, change: raw.change != null ? raw.change : 0, changePercent: raw.changePercent != null ? raw.changePercent : 0 };
             setSearchResults([stock]);
@@ -171,7 +168,7 @@
       return errorLog;
     }
     function loadTestData() {
-      const testUser = { firstName: 'Test', lastName: 'Player', phone: '5555555555', location: 'Test State', riskTolerance: 'medium', preferredSector: 'Technology', returnGoal: 'long' };
+      const testUser = { firstName: 'Test', lastName: 'Player', username: 'testplayer', phone: '' };
       setUser(testUser);
       const testPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
       setPortfolio(testPortfolio);
@@ -186,17 +183,17 @@
           if (userData) {
             const parsedUser = JSON.parse(userData.value);
             setUser(parsedUser);
-            const portfolioData = await window.storage.get('kt-portfolio-' + parsedUser.phone);
+            const portfolioData = await window.storage.get('kt-portfolio-' + parsedUser.username);
             if (portfolioData) {
               const parsedPortfolio = JSON.parse(portfolioData.value);
               setPortfolio(parsedPortfolio);
-              await generateKTRankings(parsedUser);
+              await generateKTRankings();
               setScreen('game');
             } else {
               const newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
               setPortfolio(newPortfolio);
-              await window.storage.set('kt-portfolio-' + parsedUser.phone, JSON.stringify(newPortfolio));
-              await generateKTRankings(parsedUser);
+              await window.storage.set('kt-portfolio-' + parsedUser.username, JSON.stringify(newPortfolio));
+              await generateKTRankings();
               setScreen('game');
             }
           }
@@ -222,8 +219,8 @@
             if (data) currentLeaderboard = JSON.parse(data.value);
           } catch (e) { currentLeaderboard = []; }
           const returnPercent = ((portfolioData.totalValue - portfolioData.startValue) / portfolioData.startValue) * 100;
-          const existingIndex = currentLeaderboard.findIndex(function(entry) { return entry.phone === userData.phone; });
-          const newEntry = { name: userData.firstName + ' ' + userData.lastName, phone: userData.phone, return: returnPercent, value: portfolioData.totalValue };
+          const existingIndex = currentLeaderboard.findIndex(function(entry) { return entry.username === userData.username; });
+          const newEntry = { name: userData.firstName + ' ' + userData.lastName, username: userData.username, return: returnPercent, value: portfolioData.totalValue };
           if (existingIndex >= 0) currentLeaderboard[existingIndex] = newEntry;
           else currentLeaderboard.push(newEntry);
           currentLeaderboard.sort(function(a, b) { return b.return - a.return; });
@@ -236,18 +233,18 @@
     function register(formData) {
       return (async function() {
         try {
-          const userData = { firstName: formData.firstName, lastName: formData.lastName, phone: formData.phone, location: formData.location, riskTolerance: formData.riskTolerance, preferredSector: formData.preferredSector, returnGoal: formData.returnGoal };
+          const userData = { firstName: formData.firstName, lastName: formData.lastName, username: formData.username.trim(), phone: (formData.phone || '').trim() };
           if (window.storage) try { await window.storage.set('kt-user', JSON.stringify(userData)); } catch (err) { logError('register - save user', err, { userData: userData }); }
           setUser(userData);
           const newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
           setPortfolio(newPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + userData.phone, JSON.stringify(newPortfolio)); } catch (err) { logError('register - save portfolio', err, { newPortfolio: newPortfolio }); }
-          await generateKTRankings(userData);
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + userData.username, JSON.stringify(newPortfolio)); } catch (err) { logError('register - save portfolio', err, { newPortfolio: newPortfolio }); }
+          await generateKTRankings();
           setScreen('game');
         } catch (err) { logError('register', err, { formData: formData }); alert('❌ Registration failed: ' + err.message); }
       })();
     }
-    function generateKTRankings(userData) {
+    function generateKTRankings() {
       return (async function() {
         try {
           const symbolsParam = POPULAR_STOCKS.join(',');
@@ -261,8 +258,6 @@
               const baseline = KT_BASELINES[stock.symbol] || { sentiment: 60, technical: 60, leadership: 60 };
               var sentiment = baseline.sentiment, technical = baseline.technical, leadership = baseline.leadership;
               if (stock.changePercent != null) technical = Math.max(0, Math.min(100, technical + stock.changePercent * 2));
-              if (userData.riskTolerance === 'high') technical += 5; else if (userData.riskTolerance === 'low') leadership += 5;
-              if (userData.returnGoal === 'short') technical += 3; else leadership += 3;
               const ktValue = sentiment * 0.4 + technical * 0.35 + leadership * 0.25;
               return { symbol: stock.symbol, name: stock.name, ktValue: ktValue, sentiment: sentiment, technical: technical, leadership: leadership, price: stock.price, change: stock.change != null ? stock.change : 0, changePercent: stock.changePercent != null ? stock.changePercent : 0 };
             });
@@ -270,7 +265,7 @@
           setKtRankings(rankings);
           return rankings;
         } catch (err) {
-          logError('generateKTRankings', err, { userData: userData });
+          logError('generateKTRankings', err);
           setApiError('Could not reach the stock API. Showing last known data.');
           if (ktRankings.length > 0) return ktRankings;
           return [];
@@ -301,7 +296,7 @@
           const totalValue = portfolio.cash + holdingsValue;
           const updatedPortfolio = { cash: portfolio.cash, holdings: updatedHoldings, totalValue: totalValue, startValue: portfolio.startValue, gameStarted: portfolio.gameStarted };
           setPortfolio(updatedPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(updatedPortfolio)); } catch (err) { logError('updatePortfolioValues - save', err); }
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.username, JSON.stringify(updatedPortfolio)); } catch (err) { logError('updatePortfolioValues - save', err); }
           await updateLeaderboard(user, updatedPortfolio);
           if (totalValue <= 20) setScreen('gameOver');
           await generateKTRankings(user);
@@ -327,7 +322,7 @@
           const holdingsValue = updatedHoldings.reduce(function(sum, h) { return sum + h.value; }, 0);
           const updatedPortfolio = { cash: portfolio.cash - cost, holdings: updatedHoldings, totalValue: portfolio.cash - cost + holdingsValue, startValue: portfolio.startValue, gameStarted: portfolio.gameStarted };
           setPortfolio(updatedPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(updatedPortfolio)); } catch (err) { logError('buyStock - save', err); }
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.username, JSON.stringify(updatedPortfolio)); } catch (err) { logError('buyStock - save', err); }
           await updateLeaderboard(user, updatedPortfolio);
           setSelectedStock(null);
         } catch (err) { logError('buyStock', err); alert('❌ Purchase failed: ' + err.message); }
@@ -341,7 +336,7 @@
           const holdingsValue = updatedHoldings.reduce(function(sum, h) { return sum + h.value; }, 0);
           const updatedPortfolio = { cash: portfolio.cash + saleValue, holdings: updatedHoldings, totalValue: portfolio.cash + saleValue + holdingsValue, startValue: portfolio.startValue, gameStarted: portfolio.gameStarted };
           setPortfolio(updatedPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(updatedPortfolio)); } catch (err) { logError('sellStock - save', err, { holding: holding }); }
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.username, JSON.stringify(updatedPortfolio)); } catch (err) { logError('sellStock - save', err, { holding: holding }); }
           await updateLeaderboard(user, updatedPortfolio);
         } catch (err) { logError('sellStock', err, { holding: holding }); alert('❌ Sale failed: ' + err.message); }
       })();
@@ -352,7 +347,7 @@
         try {
           const newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
           setPortfolio(newPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(newPortfolio)); } catch (err) { logError('resetGame - save', err); }
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.username, JSON.stringify(newPortfolio)); } catch (err) { logError('resetGame - save', err); }
           await generateKTRankings(user);
           await updateLeaderboard(user, newPortfolio);
           setScreen('game');
@@ -366,7 +361,7 @@
         try {
           const updatedPortfolio = { cash: portfolio.cash, holdings: portfolio.holdings, totalValue: portfolio.totalValue, startValue: portfolio.totalValue, gameStarted: true };
           setPortfolio(updatedPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(updatedPortfolio)); } catch (err) { logError('startGame - save', err); }
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.username, JSON.stringify(updatedPortfolio)); } catch (err) { logError('startGame - save', err); }
           alert('🎮 Game started with ' + portfolio.holdings.length + ' stocks! Prices update every 15 seconds. Good luck!');
         } catch (err) { logError('startGame', err); alert('❌ Failed to start game: ' + err.message); }
       })();
@@ -375,7 +370,7 @@
     useEffect(function() { loadUserData(); loadLeaderboard(); }, []);
     useEffect(function() {
       if (user && screen === 'game') {
-        const interval = setInterval(function() { generateKTRankings(user); }, 86400000);
+        const interval = setInterval(function() { generateKTRankings(); }, 86400000);
         return function() { clearInterval(interval); };
       }
     }, [user, screen]);
@@ -409,11 +404,14 @@
     }
 
     function RegisterScreen() {
-      const [formData, setFormData] = useState({ firstName: '', lastName: '', phone: '', location: '', riskTolerance: 'medium', preferredSector: 'Technology', returnGoal: 'long' });
+      const [formData, setFormData] = useState({ firstName: '', lastName: '', username: '', phone: '' });
       const [isSubmitting, setIsSubmitting] = useState(false);
       function handleSubmit(ev) {
         ev.preventDefault();
-        if (!formData.phone.match(/^\d{10}$/)) { alert('📱 Please enter a 10-digit phone number'); return; }
+        var un = (formData.username || '').trim();
+        if (!un) { alert('Please enter a username'); return; }
+        if (/[^a-zA-Z0-9_-]/.test(un)) { alert('Username can only contain letters, numbers, underscores and hyphens'); return; }
+        if (formData.phone && !formData.phone.match(/^\d{10}$/)) { alert('📱 If provided, phone must be 10 digits'); return; }
         setIsSubmitting(true);
         setTimeout(function() {
           register(formData).then(function() { setIsSubmitting(false); }).catch(function() { setIsSubmitting(false); });
@@ -431,33 +429,12 @@
             e('input', { type: 'text', required: true, value: formData.lastName, onChange: function(ev) { setFormData(Object.assign({}, formData, { lastName: ev.target.value })); }, placeholder: 'Your last name' })
           ),
           e('div', null,
-            e('label', null, '📱 Phone Number'),
-            e('input', { type: 'tel', required: true, value: formData.phone, onChange: function(ev) { setFormData(Object.assign({}, formData, { phone: ev.target.value.replace(/\D/g, '') })); }, placeholder: '1234567890', maxLength: 10 })
+            e('label', null, 'Username'),
+            e('input', { type: 'text', required: true, value: formData.username, onChange: function(ev) { setFormData(Object.assign({}, formData, { username: ev.target.value })); }, placeholder: 'Unique username (letters, numbers, _ -)' })
           ),
           e('div', null,
-            e('label', null, '🌎 State or Country'),
-            e('input', { type: 'text', required: true, value: formData.location, onChange: function(ev) { setFormData(Object.assign({}, formData, { location: ev.target.value })); }, placeholder: 'e.g., California or USA' })
-          ),
-          e('div', null,
-            e('label', null, '🎲 Risk Tolerance'),
-            e('select', { value: formData.riskTolerance, onChange: function(ev) { setFormData(Object.assign({}, formData, { riskTolerance: ev.target.value })); } },
-              e('option', { value: 'low' }, '😌 Low - Play it safe'),
-              e('option', { value: 'medium' }, '😊 Medium - Balanced'),
-              e('option', { value: 'high' }, '🚀 High - Go big!')
-            )
-          ),
-          e('div', null,
-            e('label', null, '🏭 Favorite Sector'),
-            e('select', { value: formData.preferredSector, onChange: function(ev) { setFormData(Object.assign({}, formData, { preferredSector: ev.target.value })); } },
-              SECTORS.map(function(sector) { return e('option', { key: sector, value: sector }, sector); })
-            )
-          ),
-          e('div', null,
-            e('label', null, '⏰ Investment Goal'),
-            e('select', { value: formData.returnGoal, onChange: function(ev) { setFormData(Object.assign({}, formData, { returnGoal: ev.target.value })); } },
-              e('option', { value: 'short' }, '⚡ Short Term (under 6 months)'),
-              e('option', { value: 'long' }, '🌱 Long Term (over 12 months)')
-            )
+            e('label', null, '📱 Phone (optional)'),
+            e('input', { type: 'tel', value: formData.phone, onChange: function(ev) { setFormData(Object.assign({}, formData, { phone: ev.target.value.replace(/\D/g, '') })); }, placeholder: '10 digits, optional', maxLength: 10 })
           ),
           e('button', { type: 'submit', disabled: isSubmitting, style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontFamily: 'Comic Sans MS, cursive', width: '100%' } }, isSubmitting ? 'Please wait...' : 'Start Playing! 🎉'),
           isSubmitting ? e('div', { key: 'loading', className: 'kt-register-loading' }, e('div', { className: 'kt-spinner' }), e('span', null, 'Loading your game...')) : null
@@ -543,7 +520,7 @@
             e('button', { onClick: function() { setShowLeaderboard(false); }, style: { position: 'absolute', top: '15px', right: '15px', background: '#ff6a00', color: 'white', border: 'none', width: '40px', height: '40px', borderRadius: '50%', fontSize: '24px', cursor: 'pointer', fontWeight: 'bold' } }, '✕'),
             e('h3', { style: { fontSize: '32px', color: '#667eea', marginBottom: '20px', textAlign: 'center' } }, '🏆 Top Players'),
             e('div', null, leaderboard.length === 0 ? e('div', { style: { textAlign: 'center', padding: '40px', color: '#666', fontSize: '18px' } }, 'Be the first on the leaderboard!') : leaderboard.map(function(entry, index) {
-              return e('div', { key: entry.phone, style: { display: 'flex', alignItems: 'center', gap: '15px', padding: '15px', background: entry.phone === user.phone ? '#ffd700' : '#f8f8f8', marginBottom: '10px', borderRadius: '15px', border: entry.phone === user.phone ? '3px solid #667eea' : 'none' } },
+              return e('div', { key: entry.username, style: { display: 'flex', alignItems: 'center', gap: '15px', padding: '15px', background: entry.username === user.username ? '#ffd700' : '#f8f8f8', marginBottom: '10px', borderRadius: '15px', border: entry.username === user.username ? '3px solid #667eea' : 'none' } },
                 e('div', { style: { fontSize: '24px', fontWeight: 'bold', color: '#667eea', minWidth: '40px' } }, '#' + (index + 1)),
                 e('div', { style: { flex: 1, fontSize: '20px', fontWeight: 'bold' } }, entry.name),
                 e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: entry.return >= 0 ? '#11998e' : '#eb3349' } }, (entry.return >= 0 ? '+' : '') + entry.return.toFixed(2) + '%')
