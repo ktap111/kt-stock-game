@@ -268,11 +268,15 @@
             if (!portfoliosByUser[row.user_id]) portfoliosByUser[row.user_id] = [];
             portfoliosByUser[row.user_id].push(row);
           });
-          var entries = (_a.data || []).map(function(u) {
-            var cash = u.cash != null ? u.cash : 10000, startValue = u.start_value != null ? u.start_value : 10000;
+          var entries = (_a.data || []).filter(function(u) {
+            var rows = portfoliosByUser[u.id] || [];
+            return rows.length > 0;
+          }).map(function(u) {
+            var cash = u.cash != null ? u.cash : 10000;
             var rows = portfoliosByUser[u.id] || [];
             var holdingsValue = rows.reduce(function(sum, r) { var p = priceMap[r.symbol] != null ? priceMap[r.symbol] : r.purchase_price; return sum + r.shares * p; }, 0);
-            var totalValue = cash + holdingsValue, returnPercent = startValue > 0 ? ((totalValue - startValue) / startValue) * 100 : 0;
+            var totalValue = cash + holdingsValue;
+            var returnPercent = ((totalValue / 10000) - 1) * 100;
             return { name: u.leaderboard_name, username: u.leaderboard_name, userId: u.id, return: returnPercent, value: totalValue };
           });
           entries.sort(function(a, b) { return b.return - a.return; });
@@ -589,7 +593,7 @@
             e('button', { onClick: function() { setShowLeaderboard(false); }, style: { position: 'absolute', top: '15px', right: '15px', background: '#ff6a00', color: 'white', border: 'none', width: '40px', height: '40px', borderRadius: '50%', fontSize: '24px', cursor: 'pointer', fontWeight: 'bold' } }, '✕'),
             e('h3', { style: { fontSize: '32px', color: '#667eea', marginBottom: '20px', textAlign: 'center' } }, '🏆 Top Players'),
             e('div', null, (function() {
-              var list = leaderboard.length > 0 ? leaderboard : (user && portfolio ? [{ name: user.username, username: user.username, userId: user.id, return: ((portfolio.totalValue - portfolio.startValue) / portfolio.startValue) * 100, value: portfolio.totalValue }] : []);
+              var list = leaderboard.length > 0 ? leaderboard : (user && portfolio && portfolio.holdings.length > 0 ? [{ name: user.username, username: user.username, userId: user.id, return: ((portfolio.totalValue / 10000) - 1) * 100, value: portfolio.totalValue }] : (user && portfolio ? [{ name: user.username, username: user.username, userId: user.id, return: 0, value: portfolio.totalValue }] : []));
               if (list.length === 0) return e('div', { style: { textAlign: 'center', padding: '40px', color: '#666', fontSize: '18px' } }, 'Be the first on the leaderboard!');
               return list.map(function(entry, index) {
               var isCurrentUser = entry.userId && user && user.id && entry.userId === user.id;
