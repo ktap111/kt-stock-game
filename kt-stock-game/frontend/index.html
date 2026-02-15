@@ -103,8 +103,6 @@
     const [user, setUser] = useState(null);
     const [portfolio, setPortfolio] = useState(null);
     const [ktRankings, setKtRankings] = useState([]);
-    const [sharesInputVersion, setSharesInputVersion] = useState(0);
-    const sharesInputRef = useRef(null);
     const [leaderboard, setLeaderboard] = useState([]);
     const [showLeaderboard, setShowLeaderboard] = useState(false);
     const [debugMode, setDebugMode] = useState(false);
@@ -333,7 +331,6 @@
           if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(updatedPortfolio)); } catch (err) { logError('buyStock - save', err); }
           await updateLeaderboard(user, updatedPortfolio);
           setSelectedStock(null);
-          if (sharesInputRef.current) sharesInputRef.current.value = '';
         } catch (err) { logError('buyStock', err); alert('❌ Purchase failed: ' + err.message); }
       })();
     }
@@ -389,14 +386,6 @@
         return function() { clearInterval(interval); };
       }
     }, [portfolio, screen]);
-    useEffect(function() {
-      if (!selectedStock) return;
-      var input = sharesInputRef.current;
-      if (input) {
-        input.value = '';
-        requestAnimationFrame(function() { input.focus(); });
-      }
-    }, [selectedStock]);
 
     function DebugPanel() {
       if (!debugMode) return null;
@@ -508,6 +497,29 @@
       );
     }
 
+    function BuySharesForm(props) {
+      var selectedStock = props.selectedStock, portfolio = props.portfolio, onBuy = props.onBuy;
+      var _s = useState(''), sharesInput = _s[0], setSharesInput = _s[1];
+      var inputRef = useRef(null);
+      useEffect(function() {
+        setSharesInput('');
+        var input = inputRef.current;
+        if (input) requestAnimationFrame(function() { input.focus(); });
+      }, [selectedStock ? selectedStock.symbol : null]);
+      var n = parseInt(sharesInput, 10) || 0;
+      var dis = n === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * n;
+      return e('div', null,
+        e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', marginBottom: '10px' } }, 'How many shares?'),
+        e('input', { ref: inputRef, type: 'text', inputMode: 'numeric', placeholder: 'Enter number of shares', value: sharesInput, onChange: function(ev) { setSharesInput(ev.target.value.replace(/\D/g, '')); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '20px', marginBottom: '15px', fontFamily: 'Comic Sans MS, cursive' } }),
+        e('div', { style: { fontSize: '24px', fontWeight: 'bold', textAlign: 'center', color: '#667eea', marginBottom: '20px' } }, 'Total: $' + (n > 0 ? (selectedStock.price * n).toFixed(2) : '0.00')),
+        e('button', {
+          onClick: function() { onBuy(selectedStock, n); },
+          disabled: dis,
+          style: { background: dis ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: dis ? 'not-allowed' : 'pointer', fontFamily: 'Comic Sans MS, cursive', width: '100%' }
+        }, portfolio.holdings.length >= 10 ? '❌ Max 10 Stocks' : 'Buy Shares 💰')
+      );
+    }
+
     function GameScreen() {
       const returnPercent = ((portfolio.totalValue - portfolio.startValue) / portfolio.startValue) * 100;
       const holdingsValue = portfolio.holdings.reduce(function(sum, h) { return sum + h.value; }, 0);
@@ -614,16 +626,7 @@
                 e('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '10px', background: '#f0f0f0', marginBottom: '8px', borderRadius: '10px', fontSize: '18px' } }, e('span', null, '👑 Leadership'), e('span', null, selectedStock.leadership.toFixed(0)))
               )
             ),
-            e('div', null,
-              e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', marginBottom: '10px' } }, 'How many shares?'),
-              e('input', { ref: sharesInputRef, type: 'text', inputMode: 'numeric', placeholder: 'Enter number of shares', defaultValue: '', onChange: function(ev) { var v = ev.target.value.replace(/\D/g, ''); ev.target.value = v; setSharesInputVersion(function(x) { return x + 1; }); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '20px', marginBottom: '15px', fontFamily: 'Comic Sans MS, cursive' } }),
-              e('div', { style: { fontSize: '24px', fontWeight: 'bold', textAlign: 'center', color: '#667eea', marginBottom: '20px' } }, 'Total: $' + (function() { var raw = sharesInputRef.current ? sharesInputRef.current.value : ''; var n = parseInt(raw, 10) || 0; return n > 0 ? (selectedStock.price * n).toFixed(2) : '0.00'; })()),
-              e('button', {
-                onClick: function() { var raw = sharesInputRef.current ? sharesInputRef.current.value : ''; var n = parseInt(raw, 10) || 0; buyStock(selectedStock, n); },
-                disabled: (function() { var raw = sharesInputRef.current ? sharesInputRef.current.value : ''; var n = parseInt(raw, 10) || 0; return n === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * n; })(),
-                style: (function() { var raw = sharesInputRef.current ? sharesInputRef.current.value : ''; var n = parseInt(raw, 10) || 0; var dis = n === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * n; return { background: dis ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: dis ? 'not-allowed' : 'pointer', fontFamily: 'Comic Sans MS, cursive', width: '100%' }; })()
-              }, portfolio.holdings.length >= 10 ? '❌ Max 10 Stocks' : 'Buy Shares 💰')
-            )
+            e(BuySharesForm, { selectedStock: selectedStock, portfolio: portfolio, onBuy: buyStock })
           )
         ) : null
       );
