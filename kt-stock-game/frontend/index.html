@@ -140,12 +140,30 @@
       return { allowed: true };
     }
     function handleSearch() {
-      const searchValue = searchInputRef.current ? searchInputRef.current.value : '';
-      if (searchValue.length === 0) { setSearchResults([]); return; }
-      const term = searchValue.toUpperCase();
-      const ktMatches = ktRankings.filter(function(stock) { return stock.symbol.includes(term); });
-      if (ktMatches.length > 0) setSearchResults(ktMatches.slice(0, 5));
-      else setSearchResults([{ symbol: term, notFound: true, message: '"' + term + '" not in current game stocks. Available stocks: AAPL, MSFT, GOOGL, AMZN, NVDA, TSLA, META, JPM, V, WMT, DIS, NFLX, BA, KO, PEP, NKE, MCD, SBUX, COST, HD' }]);
+      const searchValue = searchInputRef.current ? searchInputRef.current.value.trim() : '';
+      var term = searchValue.toUpperCase();
+      if (term.length === 0) { setSearchResults([]); return; }
+      setSearchResults([{ searching: true, symbol: term }]);
+      fetch(API_BASE_URL + '/api/stocks?symbols=' + encodeURIComponent(term))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var raw = data.stocks && data.stocks[0];
+          if (raw && raw.price != null) {
+            var baseline = KT_BASELINES[raw.symbol] || { sentiment: 60, technical: 60, leadership: 60 };
+            var sentiment = baseline.sentiment, technical = baseline.technical, leadership = baseline.leadership;
+            if (raw.changePercent != null) technical = Math.max(0, Math.min(100, technical + raw.changePercent * 2));
+            if (user && user.riskTolerance === 'high') technical += 5; else if (user && user.riskTolerance === 'low') leadership += 5;
+            if (user && user.returnGoal === 'short') technical += 3; else if (user) leadership += 3;
+            var ktValue = sentiment * 0.4 + technical * 0.35 + leadership * 0.25;
+            var stock = { symbol: raw.symbol, name: raw.name || raw.symbol, ktValue: ktValue, sentiment: sentiment, technical: technical, leadership: leadership, price: raw.price, change: raw.change != null ? raw.change : 0, changePercent: raw.changePercent != null ? raw.changePercent : 0 };
+            setSearchResults([stock]);
+          } else {
+            setSearchResults([{ notFound: true, symbol: term, message: 'Symbol "' + term + '" is invalid or not found. Please check the ticker (e.g. AAPL, MSFT) and try again.' }]);
+          }
+        })
+        .catch(function(err) {
+          setSearchResults([{ notFound: true, symbol: term, message: 'Could not verify symbol. Please check your connection and try again.' }]);
+        });
     }
     function logError(location, error, context) {
       context = context || {};
@@ -521,13 +539,14 @@
         e('div', { style: { marginBottom: '30px', background: '#f8f8f8', padding: '25px', borderRadius: '20px', border: '3px solid #667eea' } },
           e('h3', { style: { fontSize: '24px', color: '#667eea', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' } }, '🔍 Search Any Stock'),
           e('div', { style: { display: 'flex', gap: '10px' } },
-            e('input', { ref: searchInputRef, type: 'text', placeholder: 'Type ticker symbol (e.g., AAPL, TSLA, GOOG...)', defaultValue: '', onKeyPress: function(ev) { if (ev.key === 'Enter') handleSearch(); }, style: { flex: 1, padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '20px', fontFamily: 'Comic Sans MS, cursive' } }),
+            e('input', { ref: searchInputRef, type: 'text', placeholder: 'Any ticker (e.g. AAPL, PLTR, COIN)', defaultValue: '', onKeyPress: function(ev) { if (ev.key === 'Enter') handleSearch(); }, style: { flex: 1, padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '20px', fontFamily: 'Comic Sans MS, cursive' } }),
             e('button', { onClick: function() { handleSearch(); }, style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '15px 30px', borderRadius: '15px', fontSize: '20px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive', whiteSpace: 'nowrap' } }, '🔍 Search')
           ),
           searchResults.length > 0 ? e('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '15px' } }, searchResults.map(function(stock) {
-            if (stock.notFound) return e('div', { key: stock.symbol, style: { background: '#fff3e0', padding: '20px', borderRadius: '15px', border: '2px solid #ff9800' } }, e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: '#f57c00', marginBottom: '10px' } }, '❌ "' + stock.symbol + '" Not Found'), e('div', { style: { fontSize: '14px', color: '#666', lineHeight: '1.5' } }, stock.message));
+            if (stock.searching) return e('div', { key: 'searching', style: { background: '#e8f0fe', padding: '20px', borderRadius: '15px', border: '2px solid #667eea', textAlign: 'center', fontSize: '18px', color: '#667eea' } }, '🔍 Checking "' + stock.symbol + '"...');
+            if (stock.notFound) return e('div', { key: stock.symbol, style: { background: '#fff3e0', padding: '20px', borderRadius: '15px', border: '2px solid #ff9800' } }, e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: '#f57c00', marginBottom: '10px' } }, '❌ "' + stock.symbol + '" not found'), e('div', { style: { fontSize: '14px', color: '#666', lineHeight: '1.5' } }, stock.message));
             return e('div', { key: stock.symbol, onClick: function() { setSelectedStock(stock); setSearchResults([]); if (searchInputRef.current) searchInputRef.current.value = ''; }, style: { display: 'flex', alignItems: 'center', gap: '15px', background: 'white', padding: '15px', borderRadius: '15px', cursor: 'pointer', border: '2px solid #667eea' } },
-              e('div', { style: { flex: 1 } }, e('div', { style: { fontSize: '24px', fontWeight: 'bold', color: '#667eea' } }, stock.symbol, e('span', { style: { fontSize: '16px', color: '#999', fontWeight: 'normal', marginLeft: '8px' } }, COMPANY_NAMES[stock.symbol] || '')), e('div', { style: { fontSize: '16px', color: '#666' } }, '$' + stock.price.toFixed(2))),
+              e('div', { style: { flex: 1 } }, e('div', { style: { fontSize: '24px', fontWeight: 'bold', color: '#667eea' } }, stock.symbol, e('span', { style: { fontSize: '16px', color: '#999', fontWeight: 'normal', marginLeft: '8px' } }, stock.name || COMPANY_NAMES[stock.symbol] || '')), e('div', { style: { fontSize: '16px', color: '#666' } }, '$' + stock.price.toFixed(2))),
               e('div', { style: { flex: 1 } }, e('div', { style: { fontSize: '16px', fontWeight: 'bold', color: '#667eea', marginBottom: '5px' } }, 'KT: ' + stock.ktValue.toFixed(0)), e('div', { style: { background: '#e0e0e0', height: '10px', borderRadius: '5px', overflow: 'hidden' } }, e('div', { style: { background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)', height: '100%', width: stock.ktValue + '%' } }))),
               e('div', { style: { fontSize: '18px', fontWeight: 'bold', color: '#667eea' } }, 'Click to Buy →')
             );
@@ -576,7 +595,7 @@
         selectedStock ? e('div', { style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' } },
           e('div', { style: { background: 'white', borderRadius: '30px', padding: '30px', maxWidth: '500px', width: '100%', position: 'relative' } },
             e('button', { onClick: function() { setSelectedStock(null); }, style: { position: 'absolute', top: '15px', right: '15px', background: '#ff6a00', color: 'white', border: 'none', width: '40px', height: '40px', borderRadius: '50%', fontSize: '24px', cursor: 'pointer', fontWeight: 'bold' } }, '✕'),
-            e('h3', { style: { fontSize: '32px', color: '#667eea', marginBottom: '20px', textAlign: 'center' } }, '📊 ' + selectedStock.symbol, e('div', { style: { fontSize: '18px', color: '#999', fontWeight: 'normal', marginTop: '5px' } }, COMPANY_NAMES[selectedStock.symbol] || '')),
+            e('h3', { style: { fontSize: '32px', color: '#667eea', marginBottom: '20px', textAlign: 'center' } }, '📊 ' + selectedStock.symbol, e('div', { style: { fontSize: '18px', color: '#999', fontWeight: 'normal', marginTop: '5px' } }, selectedStock.name || COMPANY_NAMES[selectedStock.symbol] || '')),
             e('div', { style: { marginBottom: '30px' } },
               e('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '15px', background: '#f8f8f8', marginBottom: '10px', borderRadius: '15px', fontSize: '20px' } }, e('span', null, 'Price:'), e('span', { style: { fontSize: '28px', fontWeight: 'bold', color: '#667eea' } }, '$' + selectedStock.price.toFixed(2))),
               e('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '15px', background: '#f8f8f8', marginBottom: '10px', borderRadius: '15px', fontSize: '20px' } }, e('span', null, 'KT Score:'), e('span', { style: { fontSize: '28px', fontWeight: 'bold', color: '#ffd700' } }, selectedStock.ktValue.toFixed(0) + '/100')),
