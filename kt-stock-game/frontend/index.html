@@ -74,6 +74,35 @@
       border-radius: 50%;
       animation: kt-spin 0.7s linear infinite;
     }
+    .kt-register-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      z-index: 2000;
+      font-family: Comic Sans MS, cursive;
+    }
+    .kt-register-overlay .kt-spinner-big {
+      width: 64px;
+      height: 64px;
+      border: 6px solid rgba(255,255,255,0.3);
+      border-top-color: #ffd700;
+      border-radius: 50%;
+      animation: kt-spin 0.7s linear infinite;
+    }
+    .kt-register-overlay .kt-loading-msg {
+      color: white;
+      font-size: 22px;
+      font-weight: bold;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
     @keyframes kt-spin {
       to { transform: rotate(360deg); }
     }
@@ -183,19 +212,21 @@
           if (userData) {
             const parsedUser = JSON.parse(userData.value);
             setUser(parsedUser);
+            var portfolioToUse = null;
             const portfolioData = await window.storage.get('kt-portfolio-' + parsedUser.username);
             if (portfolioData) {
-              const parsedPortfolio = JSON.parse(portfolioData.value);
-              setPortfolio(parsedPortfolio);
+              portfolioToUse = JSON.parse(portfolioData.value);
+              setPortfolio(portfolioToUse);
               await generateKTRankings();
               setScreen('game');
             } else {
-              const newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
-              setPortfolio(newPortfolio);
-              await window.storage.set('kt-portfolio-' + parsedUser.username, JSON.stringify(newPortfolio));
+              portfolioToUse = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
+              setPortfolio(portfolioToUse);
+              await window.storage.set('kt-portfolio-' + parsedUser.username, JSON.stringify(portfolioToUse));
               await generateKTRankings();
               setScreen('game');
             }
+            updateLeaderboard(parsedUser, portfolioToUse);
           }
         } catch (err) { logError('loadUserData', err); }
       })();
@@ -220,7 +251,7 @@
           } catch (e) { currentLeaderboard = []; }
           const returnPercent = ((portfolioData.totalValue - portfolioData.startValue) / portfolioData.startValue) * 100;
           const existingIndex = currentLeaderboard.findIndex(function(entry) { return entry.username === userData.username; });
-          const newEntry = { name: userData.firstName + ' ' + userData.lastName, username: userData.username, return: returnPercent, value: portfolioData.totalValue };
+          const newEntry = { name: userData.username, username: userData.username, return: returnPercent, value: portfolioData.totalValue };
           if (existingIndex >= 0) currentLeaderboard[existingIndex] = newEntry;
           else currentLeaderboard.push(newEntry);
           currentLeaderboard.sort(function(a, b) { return b.return - a.return; });
@@ -233,13 +264,14 @@
     function register(formData) {
       return (async function() {
         try {
-          const userData = { firstName: formData.firstName, lastName: formData.lastName, username: formData.username.trim(), phone: (formData.phone || '').trim() };
+          const userData = { firstName: formData.firstName, lastName: formData.lastName, username: formData.username.trim() };
           if (window.storage) try { await window.storage.set('kt-user', JSON.stringify(userData)); } catch (err) { logError('register - save user', err, { userData: userData }); }
           setUser(userData);
           const newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
           setPortfolio(newPortfolio);
           if (window.storage) try { await window.storage.set('kt-portfolio-' + userData.username, JSON.stringify(newPortfolio)); } catch (err) { logError('register - save portfolio', err, { newPortfolio: newPortfolio }); }
           await generateKTRankings();
+          updateLeaderboard(userData, newPortfolio);
           setScreen('game');
         } catch (err) { logError('register', err, { formData: formData }); alert('❌ Registration failed: ' + err.message); }
       })();
@@ -404,20 +436,23 @@
     }
 
     function RegisterScreen() {
-      const [formData, setFormData] = useState({ firstName: '', lastName: '', username: '', phone: '' });
+      const [formData, setFormData] = useState({ firstName: '', lastName: '', username: '' });
       const [isSubmitting, setIsSubmitting] = useState(false);
       function handleSubmit(ev) {
         ev.preventDefault();
         var un = (formData.username || '').trim();
-        if (!un) { alert('Please enter a username'); return; }
-        if (/[^a-zA-Z0-9_-]/.test(un)) { alert('Username can only contain letters, numbers, underscores and hyphens'); return; }
-        if (formData.phone && !formData.phone.match(/^\d{10}$/)) { alert('📱 If provided, phone must be 10 digits'); return; }
+        if (!un) { alert('Please enter a Leaderboard Name'); return; }
+        if (/[^a-zA-Z0-9 _-]/.test(un)) { alert('Leaderboard Name can only contain letters, numbers, spaces, underscores and hyphens'); return; }
         setIsSubmitting(true);
         setTimeout(function() {
           register(formData).then(function() { setIsSubmitting(false); }).catch(function() { setIsSubmitting(false); });
         }, 0);
       }
-      return e('div', null,
+      return e('div', { style: { position: 'relative' } },
+        isSubmitting ? e('div', { className: 'kt-register-overlay' },
+          e('div', { className: 'kt-spinner-big' }),
+          e('div', { className: 'kt-loading-msg' }, 'Setting up your game...')
+        ) : null,
         e('h2', { style: { fontSize: '36px', color: '#667eea', marginBottom: '30px', textAlign: 'center' } }, '👋 Let\'s Get Started!'),
         e('form', { className: 'kt-register-form' + (isSubmitting ? ' kt-submitting' : ''), onSubmit: handleSubmit },
           e('div', null,
@@ -429,15 +464,10 @@
             e('input', { type: 'text', required: true, value: formData.lastName, onChange: function(ev) { setFormData(Object.assign({}, formData, { lastName: ev.target.value })); }, placeholder: 'Your last name' })
           ),
           e('div', null,
-            e('label', null, 'Username'),
-            e('input', { type: 'text', required: true, value: formData.username, onChange: function(ev) { setFormData(Object.assign({}, formData, { username: ev.target.value })); }, placeholder: 'Unique username (letters, numbers, _ -)' })
+            e('label', null, 'Leaderboard Name'),
+            e('input', { type: 'text', required: true, value: formData.username, onChange: function(ev) { setFormData(Object.assign({}, formData, { username: ev.target.value })); }, placeholder: 'Name shown on the leaderboard' })
           ),
-          e('div', null,
-            e('label', null, '📱 Phone (optional)'),
-            e('input', { type: 'tel', value: formData.phone, onChange: function(ev) { setFormData(Object.assign({}, formData, { phone: ev.target.value.replace(/\D/g, '') })); }, placeholder: '10 digits, optional', maxLength: 10 })
-          ),
-          e('button', { type: 'submit', disabled: isSubmitting, style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontFamily: 'Comic Sans MS, cursive', width: '100%' } }, isSubmitting ? 'Please wait...' : 'Start Playing! 🎉'),
-          isSubmitting ? e('div', { key: 'loading', className: 'kt-register-loading' }, e('div', { className: 'kt-spinner' }), e('span', null, 'Loading your game...')) : null
+          e('button', { type: 'submit', disabled: isSubmitting, style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontFamily: 'Comic Sans MS, cursive', width: '100%' } }, 'Start Playing! 🎉')
         )
       );
     }
@@ -519,13 +549,17 @@
           e('div', { style: { background: 'white', borderRadius: '30px', padding: '30px', maxWidth: '500px', width: '100%', position: 'relative', maxHeight: '90vh', overflowY: 'auto' } },
             e('button', { onClick: function() { setShowLeaderboard(false); }, style: { position: 'absolute', top: '15px', right: '15px', background: '#ff6a00', color: 'white', border: 'none', width: '40px', height: '40px', borderRadius: '50%', fontSize: '24px', cursor: 'pointer', fontWeight: 'bold' } }, '✕'),
             e('h3', { style: { fontSize: '32px', color: '#667eea', marginBottom: '20px', textAlign: 'center' } }, '🏆 Top Players'),
-            e('div', null, leaderboard.length === 0 ? e('div', { style: { textAlign: 'center', padding: '40px', color: '#666', fontSize: '18px' } }, 'Be the first on the leaderboard!') : leaderboard.map(function(entry, index) {
+            e('div', null, (function() {
+              var list = leaderboard.length > 0 ? leaderboard : (user && portfolio ? [{ name: user.username, username: user.username, return: ((portfolio.totalValue - portfolio.startValue) / portfolio.startValue) * 100, value: portfolio.totalValue }] : []);
+              if (list.length === 0) return e('div', { style: { textAlign: 'center', padding: '40px', color: '#666', fontSize: '18px' } }, 'Be the first on the leaderboard!');
+              return list.map(function(entry, index) {
               return e('div', { key: entry.username, style: { display: 'flex', alignItems: 'center', gap: '15px', padding: '15px', background: entry.username === user.username ? '#ffd700' : '#f8f8f8', marginBottom: '10px', borderRadius: '15px', border: entry.username === user.username ? '3px solid #667eea' : 'none' } },
                 e('div', { style: { fontSize: '24px', fontWeight: 'bold', color: '#667eea', minWidth: '40px' } }, '#' + (index + 1)),
                 e('div', { style: { flex: 1, fontSize: '20px', fontWeight: 'bold' } }, entry.name),
                 e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: entry.return >= 0 ? '#11998e' : '#eb3349' } }, (entry.return >= 0 ? '+' : '') + entry.return.toFixed(2) + '%')
               );
-            }))
+              });
+            })())
           )
         ) : null,
         e('div', { style: { marginBottom: '30px' } },
