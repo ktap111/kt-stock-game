@@ -109,6 +109,7 @@
   </style>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <div id="root"></div>
@@ -117,6 +118,9 @@
   const { useState, useEffect, useRef } = React;
   const e = React.createElement;
 
+  const SUPABASE_URL = 'https://lcpwaelmoveolviokfsg.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_eGF5FXAUbsLi7WYwgrOkmw_KFp7D4KX';
+  const supabase = (window.supabase && window.supabase.createClient) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
   const API_BASE_URL = 'https://kt-stock-game.onrender.com';
   const MIN_HOLDINGS = 4;
   const MAX_HOLDINGS = 10;
@@ -205,73 +209,95 @@
       setScreen('game');
     }
     function loadUserData() {
-      if (!window.storage) return;
+      if (!supabase) return;
       (async function() {
         try {
-          const userData = await window.storage.get('kt-user');
-          if (userData) {
-            const parsedUser = JSON.parse(userData.value);
-            setUser(parsedUser);
-            var portfolioToUse = null;
-            const portfolioData = await window.storage.get('kt-portfolio-' + parsedUser.username);
-            if (portfolioData) {
-              portfolioToUse = JSON.parse(portfolioData.value);
-              setPortfolio(portfolioToUse);
-              await generateKTRankings();
-              setScreen('game');
-            } else {
-              portfolioToUse = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
-              setPortfolio(portfolioToUse);
-              await window.storage.set('kt-portfolio-' + parsedUser.username, JSON.stringify(portfolioToUse));
-              await generateKTRankings();
-              setScreen('game');
-            }
-            updateLeaderboard(parsedUser, portfolioToUse);
+          const userId = localStorage.getItem('kt-user-id');
+          if (!userId) return;
+          const { data: userRow, error: userErr } = await supabase.from('users').select('*').eq('id', userId).single();
+          if (userErr || !userRow) { localStorage.removeItem('kt-user-id'); return; }
+          const parsedUser = { id: userRow.id, firstName: userRow.first_name, lastName: userRow.last_name, username: userRow.leaderboard_name };
+          setUser(parsedUser);
+          var cash = userRow.cash != null ? userRow.cash : 10000, startValue = userRow.start_value != null ? userRow.start_value : 10000, gameStarted = userRow.game_started || false;
+          const { data: portfolioRows } = await supabase.from('portfolios').select('*').eq('user_id', userId);
+          var holdingsMap = {};
+          (portfolioRows || []).forEach(function(row) {
+            if (!holdingsMap[row.symbol]) holdingsMap[row.symbol] = { shares: 0, totalCost: 0 };
+            holdingsMap[row.symbol].shares += row.shares;
+            holdingsMap[row.symbol].totalCost += row.shares * row.purchase_price;
+          });
+          var symbols = Object.keys(holdingsMap), priceMap = {};
+          if (symbols.length > 0) {
+            try {
+              var res = await fetch(API_BASE_URL + '/api/stocks?symbols=' + symbols.join(','));
+              if (res.ok) { var data = await res.json(); (data.stocks || []).forEach(function(s) { if (s.price != null) priceMap[s.symbol] = s.price; }); }
+            } catch (_) {}
           }
+          var holdings = Object.entries(holdingsMap).map(function(_p) {
+            var symbol = _p[0], agg = _p[1], purchasePrice = agg.totalCost / agg.shares, currentPrice = priceMap[symbol] != null ? priceMap[symbol] : purchasePrice;
+            return { symbol: symbol, shares: agg.shares, purchasePrice: purchasePrice, currentPrice: currentPrice, value: currentPrice * agg.shares, changePercent: ((currentPrice - purchasePrice) / purchasePrice) * 100 };
+          });
+          var holdingsValue = holdings.reduce(function(sum, h) { return sum + h.value; }, 0);
+          var portfolioToUse = { cash: cash, holdings: holdings, totalValue: cash + holdingsValue, startValue: startValue, gameStarted: gameStarted };
+          setPortfolio(portfolioToUse);
+          await generateKTRankings();
+          setScreen('game');
+          updateLeaderboard();
         } catch (err) { logError('loadUserData', err); }
       })();
     }
     function loadLeaderboard() {
-      if (!window.storage) return;
+      if (!supabase) return;
       (async function() {
         try {
-          const leaderboardData = await window.storage.get('kt-leaderboard', true);
-          if (leaderboardData) setLeaderboard(JSON.parse(leaderboardData.value));
+          var _a = await supabase.from('users').select('id, leaderboard_name, first_name, last_name, cash, start_value, game_started');
+          if (_a.error) throw _a.error;
+          var _b = await supabase.from('portfolios').select('user_id, symbol, shares, purchase_price');
+          if (_b.error) throw _b.error;
+          var uniqueSymbols = [];
+          (_b.data || []).forEach(function(r) { if (uniqueSymbols.indexOf(r.symbol) === -1) uniqueSymbols.push(r.symbol); });
+          var priceMap = {};
+          if (uniqueSymbols.length > 0) {
+            try {
+              var res = await fetch(API_BASE_URL + '/api/stocks?symbols=' + uniqueSymbols.join(','));
+              if (res.ok) { var d = await res.json(); (d.stocks || []).forEach(function(s) { if (s.price != null) priceMap[s.symbol] = s.price; }); }
+            } catch (_) {}
+          }
+          var portfoliosByUser = {};
+          (_b.data || []).forEach(function(row) {
+            if (!portfoliosByUser[row.user_id]) portfoliosByUser[row.user_id] = [];
+            portfoliosByUser[row.user_id].push(row);
+          });
+          var entries = (_a.data || []).map(function(u) {
+            var cash = u.cash != null ? u.cash : 10000, startValue = u.start_value != null ? u.start_value : 10000;
+            var rows = portfoliosByUser[u.id] || [];
+            var holdingsValue = rows.reduce(function(sum, r) { var p = priceMap[r.symbol] != null ? priceMap[r.symbol] : r.purchase_price; return sum + r.shares * p; }, 0);
+            var totalValue = cash + holdingsValue, returnPercent = startValue > 0 ? ((totalValue - startValue) / startValue) * 100 : 0;
+            return { name: u.leaderboard_name, username: u.leaderboard_name, userId: u.id, return: returnPercent, value: totalValue };
+          });
+          entries.sort(function(a, b) { return b.return - a.return; });
+          setLeaderboard(entries.slice(0, 10));
         } catch (err) { logError('loadLeaderboard', err); }
       })();
     }
-    function updateLeaderboard(userData, portfolioData) {
-      if (!window.storage) return;
-      (async function() {
-        try {
-          var currentLeaderboard = [];
-          try {
-            const data = await window.storage.get('kt-leaderboard', true);
-            if (data) currentLeaderboard = JSON.parse(data.value);
-          } catch (e) { currentLeaderboard = []; }
-          const returnPercent = ((portfolioData.totalValue - portfolioData.startValue) / portfolioData.startValue) * 100;
-          const existingIndex = currentLeaderboard.findIndex(function(entry) { return entry.username === userData.username; });
-          const newEntry = { name: userData.username, username: userData.username, return: returnPercent, value: portfolioData.totalValue };
-          if (existingIndex >= 0) currentLeaderboard[existingIndex] = newEntry;
-          else currentLeaderboard.push(newEntry);
-          currentLeaderboard.sort(function(a, b) { return b.return - a.return; });
-          currentLeaderboard = currentLeaderboard.slice(0, 100);
-          await window.storage.set('kt-leaderboard', JSON.stringify(currentLeaderboard), true);
-          setLeaderboard(currentLeaderboard);
-        } catch (err) { logError('updateLeaderboard', err, { userData: userData, portfolioData: portfolioData }); }
-      })();
+    function updateLeaderboard() {
+      if (!supabase) return;
+      loadLeaderboard();
     }
     function register(formData) {
       return (async function() {
         try {
-          const userData = { firstName: formData.firstName, lastName: formData.lastName, username: formData.username.trim() };
-          if (window.storage) try { await window.storage.set('kt-user', JSON.stringify(userData)); } catch (err) { logError('register - save user', err, { userData: userData }); }
+          if (!supabase) throw new Error('Database not available');
+          var leaderboardName = formData.username.trim();
+          var ins = await supabase.from('users').insert({ leaderboard_name: leaderboardName, first_name: formData.firstName, last_name: formData.lastName }).select('id').single();
+          if (ins.error) throw ins.error;
+          localStorage.setItem('kt-user-id', ins.data.id);
+          var userData = { id: ins.data.id, firstName: formData.firstName, lastName: formData.lastName, username: leaderboardName };
           setUser(userData);
-          const newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
+          var newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
           setPortfolio(newPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + userData.username, JSON.stringify(newPortfolio)); } catch (err) { logError('register - save portfolio', err, { newPortfolio: newPortfolio }); }
           await generateKTRankings();
-          updateLeaderboard(userData, newPortfolio);
+          updateLeaderboard();
           setScreen('game');
         } catch (err) { logError('register', err, { formData: formData }); alert('❌ Registration failed: ' + err.message); }
       })();
@@ -328,8 +354,7 @@
           const totalValue = portfolio.cash + holdingsValue;
           const updatedPortfolio = { cash: portfolio.cash, holdings: updatedHoldings, totalValue: totalValue, startValue: portfolio.startValue, gameStarted: portfolio.gameStarted };
           setPortfolio(updatedPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.username, JSON.stringify(updatedPortfolio)); } catch (err) { logError('updatePortfolioValues - save', err); }
-          await updateLeaderboard(user, updatedPortfolio);
+          updateLeaderboard();
           if (totalValue <= 20) setScreen('gameOver');
           await generateKTRankings(user);
         } catch (err) { logError('updatePortfolioValues', err); }
@@ -338,9 +363,13 @@
     function buyStock(stock, numShares) {
       (async function() {
         try {
+          if (!supabase || !user || !user.id) throw new Error('Database or user not available');
           const canBuy = canBuyStock(stock, numShares, portfolio);
           if (!canBuy.allowed) { alert(canBuy.reason); return; }
           const cost = stock.price * numShares;
+          await supabase.from('portfolios').insert({ user_id: user.id, symbol: stock.symbol, shares: numShares, purchase_price: stock.price, purchase_date: new Date().toISOString().split('T')[0] });
+          var ue = await supabase.from('users').update({ cash: portfolio.cash - cost }).eq('id', user.id);
+          if (ue.error) throw ue.error;
           const existingHolding = portfolio.holdings.find(function(h) { return h.symbol === stock.symbol; });
           var updatedHoldings;
           if (existingHolding) {
@@ -354,8 +383,7 @@
           const holdingsValue = updatedHoldings.reduce(function(sum, h) { return sum + h.value; }, 0);
           const updatedPortfolio = { cash: portfolio.cash - cost, holdings: updatedHoldings, totalValue: portfolio.cash - cost + holdingsValue, startValue: portfolio.startValue, gameStarted: portfolio.gameStarted };
           setPortfolio(updatedPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.username, JSON.stringify(updatedPortfolio)); } catch (err) { logError('buyStock - save', err); }
-          await updateLeaderboard(user, updatedPortfolio);
+          updateLeaderboard();
           setSelectedStock(null);
         } catch (err) { logError('buyStock', err); alert('❌ Purchase failed: ' + err.message); }
       })();
@@ -363,25 +391,32 @@
     function sellStock(holding) {
       (async function() {
         try {
+          if (!supabase || !user || !user.id) throw new Error('Database or user not available');
           const saleValue = holding.currentPrice * holding.shares;
+          var de = await supabase.from('portfolios').delete().eq('user_id', user.id).eq('symbol', holding.symbol);
+          if (de.error) throw de.error;
+          var ue = await supabase.from('users').update({ cash: portfolio.cash + saleValue }).eq('id', user.id);
+          if (ue.error) throw ue.error;
           const updatedHoldings = portfolio.holdings.filter(function(h) { return h.symbol !== holding.symbol; });
           const holdingsValue = updatedHoldings.reduce(function(sum, h) { return sum + h.value; }, 0);
           const updatedPortfolio = { cash: portfolio.cash + saleValue, holdings: updatedHoldings, totalValue: portfolio.cash + saleValue + holdingsValue, startValue: portfolio.startValue, gameStarted: portfolio.gameStarted };
           setPortfolio(updatedPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.username, JSON.stringify(updatedPortfolio)); } catch (err) { logError('sellStock - save', err, { holding: holding }); }
-          await updateLeaderboard(user, updatedPortfolio);
+          updateLeaderboard();
         } catch (err) { logError('sellStock', err, { holding: holding }); alert('❌ Sale failed: ' + err.message); }
       })();
     }
     function resetGame() {
-      if (!user) return;
+      if (!user || !user.id || !supabase) return;
       (async function() {
         try {
+          var de = await supabase.from('portfolios').delete().eq('user_id', user.id);
+          if (de.error) throw de.error;
+          var ue = await supabase.from('users').update({ cash: 10000, start_value: 10000, game_started: false }).eq('id', user.id);
+          if (ue.error) throw ue.error;
           const newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
           setPortfolio(newPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.username, JSON.stringify(newPortfolio)); } catch (err) { logError('resetGame - save', err); }
-          await generateKTRankings(user);
-          await updateLeaderboard(user, newPortfolio);
+          await generateKTRankings();
+          updateLeaderboard();
           setScreen('game');
         } catch (err) { logError('resetGame', err); alert('❌ Reset failed: ' + err.message); }
       })();
@@ -389,11 +424,13 @@
     function startGame() {
       if (!portfolio || portfolio.holdings.length < MIN_HOLDINGS) { alert('📦 You need at least ' + MIN_HOLDINGS + ' stocks to start!'); return; }
       if (portfolio.holdings.length > MAX_HOLDINGS) { alert('📦 You can\'t have more than ' + MAX_HOLDINGS + ' stocks!'); return; }
+      if (!supabase || !user || !user.id) { alert('❌ Database or user not available'); return; }
       (async function() {
         try {
+          var ue = await supabase.from('users').update({ game_started: true, start_value: portfolio.totalValue }).eq('id', user.id);
+          if (ue.error) throw ue.error;
           const updatedPortfolio = { cash: portfolio.cash, holdings: portfolio.holdings, totalValue: portfolio.totalValue, startValue: portfolio.totalValue, gameStarted: true };
           setPortfolio(updatedPortfolio);
-          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.username, JSON.stringify(updatedPortfolio)); } catch (err) { logError('startGame - save', err); }
           alert('🎮 Game started with ' + portfolio.holdings.length + ' stocks! Prices update every 15 seconds. Good luck!');
         } catch (err) { logError('startGame', err); alert('❌ Failed to start game: ' + err.message); }
       })();
@@ -550,10 +587,11 @@
             e('button', { onClick: function() { setShowLeaderboard(false); }, style: { position: 'absolute', top: '15px', right: '15px', background: '#ff6a00', color: 'white', border: 'none', width: '40px', height: '40px', borderRadius: '50%', fontSize: '24px', cursor: 'pointer', fontWeight: 'bold' } }, '✕'),
             e('h3', { style: { fontSize: '32px', color: '#667eea', marginBottom: '20px', textAlign: 'center' } }, '🏆 Top Players'),
             e('div', null, (function() {
-              var list = leaderboard.length > 0 ? leaderboard : (user && portfolio ? [{ name: user.username, username: user.username, return: ((portfolio.totalValue - portfolio.startValue) / portfolio.startValue) * 100, value: portfolio.totalValue }] : []);
+              var list = leaderboard.length > 0 ? leaderboard : (user && portfolio ? [{ name: user.username, username: user.username, userId: user.id, return: ((portfolio.totalValue - portfolio.startValue) / portfolio.startValue) * 100, value: portfolio.totalValue }] : []);
               if (list.length === 0) return e('div', { style: { textAlign: 'center', padding: '40px', color: '#666', fontSize: '18px' } }, 'Be the first on the leaderboard!');
               return list.map(function(entry, index) {
-              return e('div', { key: entry.username, style: { display: 'flex', alignItems: 'center', gap: '15px', padding: '15px', background: entry.username === user.username ? '#ffd700' : '#f8f8f8', marginBottom: '10px', borderRadius: '15px', border: entry.username === user.username ? '3px solid #667eea' : 'none' } },
+              var isCurrentUser = entry.userId && user && user.id && entry.userId === user.id;
+              return e('div', { key: entry.userId || entry.username, style: { display: 'flex', alignItems: 'center', gap: '15px', padding: '15px', background: isCurrentUser ? '#ffd700' : '#f8f8f8', marginBottom: '10px', borderRadius: '15px', border: isCurrentUser ? '3px solid #667eea' : 'none' } },
                 e('div', { style: { fontSize: '24px', fontWeight: 'bold', color: '#667eea', minWidth: '40px' } }, '#' + (index + 1)),
                 e('div', { style: { flex: 1, fontSize: '20px', fontWeight: 'bold' } }, entry.name),
                 e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: entry.return >= 0 ? '#11998e' : '#eb3349' } }, (entry.return >= 0 ? '+' : '') + entry.return.toFixed(2) + '%')
