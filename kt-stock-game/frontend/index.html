@@ -105,7 +105,6 @@
     const [ktRankings, setKtRankings] = useState([]);
     const [leaderboard, setLeaderboard] = useState([]);
     const [showLeaderboard, setShowLeaderboard] = useState(false);
-    const [debugMode, setDebugMode] = useState(false);
     const [errors, setErrors] = useState([]);
     const [searchResults, setSearchResults] = useState([]);
     const [apiError, setApiError] = useState(null);
@@ -387,33 +386,6 @@
       }
     }, [portfolio, screen]);
 
-    function DebugPanel() {
-      if (!debugMode) return null;
-      return e('div', { style: { position: 'fixed', top: '20px', right: '20px', width: '350px', maxHeight: '80vh', background: 'rgba(0,0,0,0.95)', color: '#0f0', borderRadius: '10px', padding: '15px', fontFamily: 'monospace', fontSize: '12px', overflowY: 'auto', zIndex: 10000, boxShadow: '0 0 20px rgba(0,255,0,0.3)' } },
-        e('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: '15px', borderBottom: '2px solid #0f0', paddingBottom: '10px' } },
-          e('h4', { style: { margin: 0, fontSize: '16px' } }, '🔧 Debug Panel'),
-          e('button', { onClick: function() { setDebugMode(false); }, style: { background: '#f00', color: 'white', border: 'none', width: '25px', height: '25px', borderRadius: '50%', cursor: 'pointer' } }, '✕')
-        ),
-        e('div', { style: { marginBottom: '15px', border: '1px solid #0f0', padding: '10px', borderRadius: '5px' } },
-          e('h5', { style: { margin: '0 0 8px 0', color: '#ff0', fontSize: '14px' } }, 'Screen State'),
-          e('div', null, screen)
-        ),
-        user ? e('div', { style: { marginBottom: '15px', border: '1px solid #0f0', padding: '10px', borderRadius: '5px' } },
-          e('h5', { style: { margin: '0 0 8px 0', color: '#ff0', fontSize: '14px' } }, 'User Data'),
-          e('pre', { style: { margin: 0, fontSize: '11px', overflowX: 'auto', whiteSpace: 'pre-wrap' } }, JSON.stringify(user, null, 2))
-        ) : null,
-        errors.length > 0 ? e('div', { style: { border: '1px solid #f00', padding: '10px', borderRadius: '5px' } },
-          e('h5', { style: { margin: '0 0 8px 0', color: '#ff0', fontSize: '14px' } }, 'Recent Errors (' + errors.length + ')'),
-          errors.slice(-3).map(function(err, i) {
-            return e('div', { key: i, style: { background: 'rgba(255,0,0,0.1)', padding: '8px', marginBottom: '8px', borderRadius: '3px', borderLeft: '3px solid #f00' } },
-              e('div', { style: { color: '#ff0', fontWeight: 'bold', marginBottom: '3px' } }, err.location),
-              e('div', { style: { color: '#f00', marginBottom: '3px' } }, err.error)
-            );
-          })
-        ) : null
-      );
-    }
-
     function WelcomeScreen() {
       return e('div', { style: { textAlign: 'center', padding: '40px 20px' } },
         e('div', { style: { fontSize: '120px', marginBottom: '20px', animation: 'bounce 2s infinite' } }, '🚀'),
@@ -432,11 +404,7 @@
           e('div', { style: { background: '#ffd700', padding: '15px 30px', borderRadius: '20px', fontSize: '20px', fontWeight: 'bold', boxShadow: '0 5px 15px rgba(0,0,0,0.2)' } }, '🎯 Smart KT rankings'),
           e('div', { style: { background: '#ffd700', padding: '15px 30px', borderRadius: '20px', fontSize: '20px', fontWeight: 'bold', boxShadow: '0 5px 15px rgba(0,0,0,0.2)' } }, '🏆 Compete with friends')
         ),
-        e('button', { onClick: function() { setScreen('register'); }, style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontFamily: 'Comic Sans MS, cursive', marginBottom: '20px' } }, "Let's Play! 🎮"),
-        e('div', { style: { marginTop: '40px', display: 'flex', flexDirection: 'column', gap: '10px' } },
-          e('button', { onClick: loadTestData, style: { background: '#333', color: 'white', border: 'none', padding: '12px 25px', borderRadius: '10px', fontSize: '16px', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive' } }, '🧪 Test Mode (Skip Registration)'),
-          e('button', { onClick: function() { setDebugMode(!debugMode); }, style: { background: '#333', color: 'white', border: 'none', padding: '12px 25px', borderRadius: '10px', fontSize: '16px', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive' } }, debugMode ? '🔧 Hide Debug Panel' : '🔧 Show Debug Panel')
-        )
+        e('button', { onClick: function() { setScreen('register'); }, style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontFamily: 'Comic Sans MS, cursive', marginBottom: '20px' } }, "Let's Play! 🎮")
       );
     }
 
@@ -508,14 +476,14 @@
       }, [selectedStock ? selectedStock.symbol : null]);
       var n = parseInt(sharesInput, 10) || 0;
       var dis = n === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * n;
-      return e('div', null,
+      return e('div', { style: { width: '100%', maxWidth: '100%', boxSizing: 'border-box' } },
         e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', marginBottom: '10px' } }, 'How many shares?'),
-        e('input', { ref: inputRef, type: 'text', inputMode: 'numeric', placeholder: 'Enter number of shares', value: sharesInput, onChange: function(ev) { setSharesInput(ev.target.value.replace(/\D/g, '')); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '20px', marginBottom: '15px', fontFamily: 'Comic Sans MS, cursive' } }),
+        e('input', { ref: inputRef, type: 'text', inputMode: 'numeric', placeholder: 'Enter number of shares', value: sharesInput, onChange: function(ev) { setSharesInput(ev.target.value.replace(/\D/g, '')); }, style: { width: '100%', maxWidth: '100%', boxSizing: 'border-box', padding: '12px 14px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', marginBottom: '15px', fontFamily: 'Comic Sans MS, cursive' } }),
         e('div', { style: { fontSize: '24px', fontWeight: 'bold', textAlign: 'center', color: '#667eea', marginBottom: '20px' } }, 'Total: $' + (n > 0 ? (selectedStock.price * n).toFixed(2) : '0.00')),
         e('button', {
           onClick: function() { onBuy(selectedStock, n); },
           disabled: dis,
-          style: { background: dis ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: dis ? 'not-allowed' : 'pointer', fontFamily: 'Comic Sans MS, cursive', width: '100%' }
+          style: { background: dis ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: dis ? 'not-allowed' : 'pointer', fontFamily: 'Comic Sans MS, cursive', width: '100%', maxWidth: '100%', boxSizing: 'border-box' }
         }, portfolio.holdings.length >= 10 ? '❌ Max 10 Stocks' : 'Buy Shares 💰')
       );
     }
@@ -526,10 +494,7 @@
       return e('div', null,
         e('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' } },
           e('h2', { style: { fontSize: '32px', color: '#667eea' } }, '👋 Hi ' + user.firstName + '!'),
-          e('div', { style: { display: 'flex', gap: '10px' } },
-            e('button', { onClick: function() { setDebugMode(!debugMode); }, style: { background: '#333', color: 'white', border: 'none', width: '45px', height: '45px', borderRadius: '50%', fontSize: '20px', cursor: 'pointer' } }, '🔧'),
-            e('button', { onClick: function() { setShowLeaderboard(!showLeaderboard); }, style: { background: '#ffd700', border: 'none', padding: '15px 30px', borderRadius: '20px', fontSize: '20px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive' } }, '🏆 Leaderboard')
-          )
+          e('button', { onClick: function() { setShowLeaderboard(!showLeaderboard); }, style: { background: '#ffd700', border: 'none', padding: '15px 30px', borderRadius: '20px', fontSize: '20px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive' } }, '🏆 Leaderboard')
         ),
         apiError ? e('div', { style: { background: '#fff3e0', border: '2px solid #ff9800', borderRadius: '15px', padding: '15px 20px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '12px' } },
           e('span', { style: { fontSize: '24px' } }, '⚠️'),
@@ -613,8 +578,8 @@
             );
           }))
         ),
-        selectedStock ? e('div', { style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' } },
-          e('div', { style: { background: 'white', borderRadius: '30px', padding: '30px', maxWidth: '500px', width: '100%', position: 'relative' } },
+        selectedStock ? e('div', { style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px', boxSizing: 'border-box' } },
+          e('div', { style: { background: 'white', borderRadius: '30px', padding: '24px', maxWidth: '500px', width: '100%', position: 'relative', boxSizing: 'border-box', overflow: 'hidden' } },
             e('button', { onClick: function() { setSelectedStock(null); }, style: { position: 'absolute', top: '15px', right: '15px', background: '#ff6a00', color: 'white', border: 'none', width: '40px', height: '40px', borderRadius: '50%', fontSize: '24px', cursor: 'pointer', fontWeight: 'bold' } }, '✕'),
             e('h3', { style: { fontSize: '32px', color: '#667eea', marginBottom: '20px', textAlign: 'center' } }, '📊 ' + selectedStock.symbol, e('div', { style: { fontSize: '18px', color: '#999', fontWeight: 'normal', marginTop: '5px' } }, selectedStock.name || COMPANY_NAMES[selectedStock.symbol] || '')),
             e('div', { style: { marginBottom: '30px' } },
@@ -652,8 +617,7 @@
         screen === 'register' ? e(RegisterScreen) : null,
         screen === 'game' ? e(GameScreen) : null,
         screen === 'gameOver' ? e(GameOverScreen) : null
-      ),
-      e(DebugPanel)
+      )
     );
   }
 
