@@ -287,11 +287,15 @@
             var rows = portfoliosByUser[u.id] || [];
             return rows.length > 0;
           }).map(function(u) {
-            var cash = u.cash != null ? u.cash : 10000;
+            var remainingCash = u.cash != null ? u.cash : 10000;
             var rows = portfoliosByUser[u.id] || [];
-            var holdingsValue = rows.reduce(function(sum, r) { var p = priceMap[r.symbol] != null ? priceMap[r.symbol] : r.purchase_price; return sum + r.shares * p; }, 0);
-            var totalValue = cash + holdingsValue;
-            var returnPercent = ((totalValue / 10000) - 1) * 100;
+            var currentHoldingsValue = rows.reduce(function(sum, r) {
+              var currentPrice = priceMap[r.symbol];
+              if (currentPrice == null) return sum + r.shares * r.purchase_price;
+              return sum + r.shares * currentPrice;
+            }, 0);
+            var totalValue = remainingCash + currentHoldingsValue;
+            var returnPercent = ((totalValue - 10000) / 10000) * 100;
             return { name: u.leaderboard_name, username: u.leaderboard_name, userId: u.id, return: returnPercent, value: totalValue };
           });
           entries.sort(function(a, b) { return b.return - a.return; });
