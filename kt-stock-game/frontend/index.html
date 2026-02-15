@@ -378,12 +378,17 @@
           if (!supabase || !user || !user.id) throw new Error('Database or user not available');
           const canBuy = canBuyStock(stock, numShares, portfolio);
           if (!canBuy.allowed) { alert(canBuy.reason); return; }
-          const cost = stock.price * numShares;
-          var insertData = { user_id: user.id, symbol: String(stock.symbol).trim(), shares: parseInt(numShares, 10), purchase_price: Number(stock.price), purchase_date: new Date().toISOString().slice(0, 10) };
-          var insertResult = await supabase.from('portfolios').insert(insertData);
-          if (insertResult.error) { console.error('Portfolio insert error:', insertResult.error); throw insertResult.error; }
-          var ue = await supabase.from('users').update({ cash: portfolio.cash - cost }).eq('id', user.id);
-          if (ue.error) throw ue.error;
+          var totalCost = numShares * Number(stock.price);
+          var rpcResult = await supabase.rpc('buy_stock', {
+            p_user_id: user.id,
+            p_symbol: String(stock.symbol).trim(),
+            p_shares: parseInt(numShares, 10),
+            p_purchase_price: Number(stock.price),
+            p_purchase_date: new Date().toISOString().slice(0, 10),
+            p_total_cost: totalCost
+          });
+          if (rpcResult.error) { console.error('buy_stock RPC error:', rpcResult.error); throw rpcResult.error; }
+          var cost = totalCost;
           const existingHolding = portfolio.holdings.find(function(h) { return h.symbol === stock.symbol; });
           var updatedHoldings;
           if (existingHolding) {
