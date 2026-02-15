@@ -367,7 +367,9 @@
           const canBuy = canBuyStock(stock, numShares, portfolio);
           if (!canBuy.allowed) { alert(canBuy.reason); return; }
           const cost = stock.price * numShares;
-          await supabase.from('portfolios').insert({ user_id: user.id, symbol: stock.symbol, shares: numShares, purchase_price: stock.price, purchase_date: new Date().toISOString().split('T')[0] });
+          var insertData = { user_id: user.id, symbol: String(stock.symbol).trim(), shares: parseInt(numShares, 10), purchase_price: Number(stock.price), purchase_date: new Date().toISOString().slice(0, 10) };
+          var insertResult = await supabase.from('portfolios').insert(insertData);
+          if (insertResult.error) { console.error('Portfolio insert error:', insertResult.error); throw insertResult.error; }
           var ue = await supabase.from('users').update({ cash: portfolio.cash - cost }).eq('id', user.id);
           if (ue.error) throw ue.error;
           const existingHolding = portfolio.holdings.find(function(h) { return h.symbol === stock.symbol; });
