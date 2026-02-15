@@ -13,6 +13,35 @@
       0%, 100% { transform: scale(1); }
       50% { transform: scale(1.05); }
     }
+    /* Registration form: aligned inputs and consistent spacing */
+    .kt-register-form {
+      width: 100%;
+    }
+    .kt-register-form > div {
+      margin-bottom: 20px;
+    }
+    .kt-register-form label {
+      display: block;
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .kt-register-form input,
+    .kt-register-form select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 14px;
+      border: 3px solid #667eea;
+      border-radius: 15px;
+      font-size: 18px;
+      font-family: Comic Sans MS, cursive;
+      min-height: 48px;
+      margin: 0;
+    }
+    .kt-register-form button[type="submit"] {
+      margin-top: 8px;
+    }
   </style>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -369,40 +398,40 @@
       }
       return e('div', null,
         e('h2', { style: { fontSize: '36px', color: '#667eea', marginBottom: '30px', textAlign: 'center' } }, '👋 Let\'s Get Started!'),
-        e('form', { onSubmit: handleSubmit },
-          e('div', { style: { marginBottom: '25px' } },
-            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, 'First Name'),
-            e('input', { type: 'text', required: true, value: formData.firstName, onChange: function(ev) { setFormData(Object.assign({}, formData, { firstName: ev.target.value })); }, placeholder: 'Your first name', style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } })
+        e('form', { className: 'kt-register-form', onSubmit: handleSubmit },
+          e('div', null,
+            e('label', null, 'First Name'),
+            e('input', { type: 'text', required: true, value: formData.firstName, onChange: function(ev) { setFormData(Object.assign({}, formData, { firstName: ev.target.value })); }, placeholder: 'Your first name' })
           ),
-          e('div', { style: { marginBottom: '25px' } },
-            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, 'Last Name'),
-            e('input', { type: 'text', required: true, value: formData.lastName, onChange: function(ev) { setFormData(Object.assign({}, formData, { lastName: ev.target.value })); }, placeholder: 'Your last name', style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } })
+          e('div', null,
+            e('label', null, 'Last Name'),
+            e('input', { type: 'text', required: true, value: formData.lastName, onChange: function(ev) { setFormData(Object.assign({}, formData, { lastName: ev.target.value })); }, placeholder: 'Your last name' })
           ),
-          e('div', { style: { marginBottom: '25px' } },
-            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '📱 Phone Number'),
-            e('input', { type: 'tel', required: true, value: formData.phone, onChange: function(ev) { setFormData(Object.assign({}, formData, { phone: ev.target.value.replace(/\D/g, '') })); }, placeholder: '1234567890', maxLength: 10, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } })
+          e('div', null,
+            e('label', null, '📱 Phone Number'),
+            e('input', { type: 'tel', required: true, value: formData.phone, onChange: function(ev) { setFormData(Object.assign({}, formData, { phone: ev.target.value.replace(/\D/g, '') })); }, placeholder: '1234567890', maxLength: 10 })
           ),
-          e('div', { style: { marginBottom: '25px' } },
-            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '🌎 State or Country'),
-            e('input', { type: 'text', required: true, value: formData.location, onChange: function(ev) { setFormData(Object.assign({}, formData, { location: ev.target.value })); }, placeholder: 'e.g., California or USA', style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } })
+          e('div', null,
+            e('label', null, '🌎 State or Country'),
+            e('input', { type: 'text', required: true, value: formData.location, onChange: function(ev) { setFormData(Object.assign({}, formData, { location: ev.target.value })); }, placeholder: 'e.g., California or USA' })
           ),
-          e('div', { style: { marginBottom: '25px' } },
-            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '🎲 Risk Tolerance'),
-            e('select', { value: formData.riskTolerance, onChange: function(ev) { setFormData(Object.assign({}, formData, { riskTolerance: ev.target.value })); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } },
+          e('div', null,
+            e('label', null, '🎲 Risk Tolerance'),
+            e('select', { value: formData.riskTolerance, onChange: function(ev) { setFormData(Object.assign({}, formData, { riskTolerance: ev.target.value })); } },
               e('option', { value: 'low' }, '😌 Low - Play it safe'),
               e('option', { value: 'medium' }, '😊 Medium - Balanced'),
               e('option', { value: 'high' }, '🚀 High - Go big!')
             )
           ),
-          e('div', { style: { marginBottom: '25px' } },
-            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '🏭 Favorite Sector'),
-            e('select', { value: formData.preferredSector, onChange: function(ev) { setFormData(Object.assign({}, formData, { preferredSector: ev.target.value })); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } },
+          e('div', null,
+            e('label', null, '🏭 Favorite Sector'),
+            e('select', { value: formData.preferredSector, onChange: function(ev) { setFormData(Object.assign({}, formData, { preferredSector: ev.target.value })); } },
               SECTORS.map(function(sector) { return e('option', { key: sector, value: sector }, sector); })
             )
           ),
-          e('div', { style: { marginBottom: '25px' } },
-            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '⏰ Investment Goal'),
-            e('select', { value: formData.returnGoal, onChange: function(ev) { setFormData(Object.assign({}, formData, { returnGoal: ev.target.value })); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } },
+          e('div', null,
+            e('label', null, '⏰ Investment Goal'),
+            e('select', { value: formData.returnGoal, onChange: function(ev) { setFormData(Object.assign({}, formData, { returnGoal: ev.target.value })); } },
               e('option', { value: 'short' }, '⚡ Short Term (under 6 months)'),
               e('option', { value: 'long' }, '🌱 Long Term (over 12 months)')
             )
