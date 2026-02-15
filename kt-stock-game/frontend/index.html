@@ -1,19 +1,565 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KT Stock Game</title>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KT Stock Game</title>
+  <style>
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-20px); }
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+  </style>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 </head>
 <body>
-    <div id="root"></div>
-    <script type="text/babel" src="./kt-stock-game-react.jsx"></script>
-    <script type="text/babel">
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<KT_STOCK_GAME />);
-    </script>
+  <div id="root"></div>
+  <script>
+(function() {
+  const { useState, useEffect, useRef } = React;
+  const e = React.createElement;
+
+  const API_BASE_URL = 'https://kt-stock-game.onrender.com';
+  const MIN_HOLDINGS = 4;
+  const MAX_HOLDINGS = 10;
+  const MIN_INVESTED_PCT = 97;
+  const MAX_POSITION_PCT = 25;
+  const POPULAR_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META', 'JPM', 'V', 'WMT', 'DIS', 'NFLX', 'BA', 'KO', 'PEP', 'NKE', 'MCD', 'SBUX', 'COST', 'HD'];
+  const COMPANY_NAMES = { 'AAPL': 'Apple', 'MSFT': 'Microsoft', 'GOOGL': 'Google', 'AMZN': 'Amazon', 'NVDA': 'NVIDIA', 'TSLA': 'Tesla', 'META': 'Meta', 'JPM': 'JPMorgan Chase', 'V': 'Visa', 'WMT': 'Walmart', 'DIS': 'Disney', 'NFLX': 'Netflix', 'BA': 'Boeing', 'KO': 'Coca-Cola', 'PEP': 'PepsiCo', 'NKE': 'Nike', 'MCD': "McDonald's", 'SBUX': 'Starbucks', 'COST': 'Costco', 'HD': 'Home Depot' };
+  const SECTORS = ['Technology', 'Healthcare', 'Financial', 'Consumer', 'Energy', 'Industrial', 'Materials', 'Utilities', 'Real Estate', 'Communications'];
+  const KT_BASELINES = { 'NVDA': { sentiment: 92, technical: 88, leadership: 95 }, 'AAPL': { sentiment: 85, technical: 82, leadership: 90 }, 'MSFT': { sentiment: 88, technical: 85, leadership: 92 }, 'GOOGL': { sentiment: 80, technical: 78, leadership: 85 }, 'AMZN': { sentiment: 82, technical: 80, leadership: 88 }, 'TSLA': { sentiment: 75, technical: 70, leadership: 82 }, 'META': { sentiment: 78, technical: 75, leadership: 80 }, 'NFLX': { sentiment: 72, technical: 68, leadership: 75 }, 'V': { sentiment: 70, technical: 72, leadership: 78 }, 'JPM': { sentiment: 68, technical: 70, leadership: 75 }, 'WMT': { sentiment: 65, technical: 68, leadership: 72 }, 'DIS': { sentiment: 60, technical: 58, leadership: 68 }, 'KO': { sentiment: 62, technical: 60, leadership: 70 }, 'PEP': { sentiment: 63, technical: 62, leadership: 68 }, 'MCD': { sentiment: 61, technical: 59, leadership: 65 }, 'NKE': { sentiment: 58, technical: 55, leadership: 62 }, 'SBUX': { sentiment: 56, technical: 54, leadership: 60 }, 'BA': { sentiment: 52, technical: 50, leadership: 58 }, 'COST': { sentiment: 66, technical: 64, leadership: 70 }, 'HD': { sentiment: 64, technical: 62, leadership: 68 } };
+
+  function KT_STOCK_GAME() {
+    const [screen, setScreen] = useState('welcome');
+    const [user, setUser] = useState(null);
+    const [portfolio, setPortfolio] = useState(null);
+    const [ktRankings, setKtRankings] = useState([]);
+    const [shares, setShares] = useState(1);
+    const [leaderboard, setLeaderboard] = useState([]);
+    const [showLeaderboard, setShowLeaderboard] = useState(false);
+    const [debugMode, setDebugMode] = useState(false);
+    const [errors, setErrors] = useState([]);
+    const [searchResults, setSearchResults] = useState([]);
+    const [apiError, setApiError] = useState(null);
+    const [selectedStock, setSelectedStock] = useState(null);
+    const searchInputRef = useRef(null);
+
+    function calculateInvestedPct(portfolio) {
+      if (!portfolio || portfolio.totalValue === 0) return 0;
+      const holdingsValue = portfolio.holdings.reduce(function(sum, h) { return sum + h.value; }, 0);
+      return (holdingsValue / portfolio.totalValue) * 100;
+    }
+    function getPositionPct(holding, portfolioValue) {
+      if (!portfolioValue || portfolioValue === 0) return 0;
+      return (holding.value / portfolioValue) * 100;
+    }
+    function isBuyable(stock, portfolioValue) {
+      return stock.price <= (portfolioValue * (MAX_POSITION_PCT / 100));
+    }
+    function canBuyStock(stock, numShares, portfolio) {
+      const cost = stock.price * numShares;
+      if (cost > portfolio.cash) return { allowed: false, reason: '💰 Not enough cash!' };
+      const existingHolding = portfolio.holdings.find(function(h) { return h.symbol === stock.symbol; });
+      if (!existingHolding && portfolio.holdings.length >= MAX_HOLDINGS) return { allowed: false, reason: '📦 Maximum ' + MAX_HOLDINGS + ' stocks allowed' };
+      const newPositionValue = existingHolding ? existingHolding.value + cost : cost;
+      const newPositionPct = (newPositionValue / portfolio.totalValue) * 100;
+      if (newPositionPct > MAX_POSITION_PCT) return { allowed: false, reason: '⚠️ Would exceed ' + MAX_POSITION_PCT + '% position limit (' + newPositionPct.toFixed(1) + '%)' };
+      if (existingHolding) {
+        const currentPct = getPositionPct(existingHolding, portfolio.totalValue);
+        if (currentPct > MAX_POSITION_PCT) return { allowed: false, reason: '🔒 Position is ' + currentPct.toFixed(1) + '% (max ' + MAX_POSITION_PCT + '%) - sell first to add more' };
+      }
+      return { allowed: true };
+    }
+    function handleSearch() {
+      const searchValue = searchInputRef.current ? searchInputRef.current.value : '';
+      if (searchValue.length === 0) { setSearchResults([]); return; }
+      const term = searchValue.toUpperCase();
+      const ktMatches = ktRankings.filter(function(stock) { return stock.symbol.includes(term); });
+      if (ktMatches.length > 0) setSearchResults(ktMatches.slice(0, 5));
+      else setSearchResults([{ symbol: term, notFound: true, message: '"' + term + '" not in current game stocks. Available stocks: AAPL, MSFT, GOOGL, AMZN, NVDA, TSLA, META, JPM, V, WMT, DIS, NFLX, BA, KO, PEP, NKE, MCD, SBUX, COST, HD' }]);
+    }
+    function logError(location, error, context) {
+      context = context || {};
+      const errorLog = { timestamp: new Date().toISOString(), location: location, error: (error.message || error.toString()), context: context, stack: error.stack };
+      console.error('KT GAME ERROR:', errorLog);
+      setErrors(function(prev) { return prev.slice(-9).concat([errorLog]); });
+      return errorLog;
+    }
+    function loadTestData() {
+      const testUser = { firstName: 'Test', lastName: 'Player', phone: '5555555555', location: 'Test State', riskTolerance: 'medium', preferredSector: 'Technology', returnGoal: 'long' };
+      setUser(testUser);
+      const testPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
+      setPortfolio(testPortfolio);
+      generateKTRankings(testUser);
+      setScreen('game');
+    }
+    function loadUserData() {
+      if (!window.storage) return;
+      (async function() {
+        try {
+          const userData = await window.storage.get('kt-user');
+          if (userData) {
+            const parsedUser = JSON.parse(userData.value);
+            setUser(parsedUser);
+            const portfolioData = await window.storage.get('kt-portfolio-' + parsedUser.phone);
+            if (portfolioData) {
+              const parsedPortfolio = JSON.parse(portfolioData.value);
+              setPortfolio(parsedPortfolio);
+              await generateKTRankings(parsedUser);
+              setScreen('game');
+            } else {
+              const newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
+              setPortfolio(newPortfolio);
+              await window.storage.set('kt-portfolio-' + parsedUser.phone, JSON.stringify(newPortfolio));
+              await generateKTRankings(parsedUser);
+              setScreen('game');
+            }
+          }
+        } catch (err) { logError('loadUserData', err); }
+      })();
+    }
+    function loadLeaderboard() {
+      if (!window.storage) return;
+      (async function() {
+        try {
+          const leaderboardData = await window.storage.get('kt-leaderboard', true);
+          if (leaderboardData) setLeaderboard(JSON.parse(leaderboardData.value));
+        } catch (err) { logError('loadLeaderboard', err); }
+      })();
+    }
+    function updateLeaderboard(userData, portfolioData) {
+      if (!window.storage) return;
+      (async function() {
+        try {
+          var currentLeaderboard = [];
+          try {
+            const data = await window.storage.get('kt-leaderboard', true);
+            if (data) currentLeaderboard = JSON.parse(data.value);
+          } catch (e) { currentLeaderboard = []; }
+          const returnPercent = ((portfolioData.totalValue - portfolioData.startValue) / portfolioData.startValue) * 100;
+          const existingIndex = currentLeaderboard.findIndex(function(entry) { return entry.phone === userData.phone; });
+          const newEntry = { name: userData.firstName + ' ' + userData.lastName, phone: userData.phone, return: returnPercent, value: portfolioData.totalValue };
+          if (existingIndex >= 0) currentLeaderboard[existingIndex] = newEntry;
+          else currentLeaderboard.push(newEntry);
+          currentLeaderboard.sort(function(a, b) { return b.return - a.return; });
+          currentLeaderboard = currentLeaderboard.slice(0, 100);
+          await window.storage.set('kt-leaderboard', JSON.stringify(currentLeaderboard), true);
+          setLeaderboard(currentLeaderboard);
+        } catch (err) { logError('updateLeaderboard', err, { userData: userData, portfolioData: portfolioData }); }
+      })();
+    }
+    function register(formData) {
+      (async function() {
+        try {
+          const userData = { firstName: formData.firstName, lastName: formData.lastName, phone: formData.phone, location: formData.location, riskTolerance: formData.riskTolerance, preferredSector: formData.preferredSector, returnGoal: formData.returnGoal };
+          if (window.storage) try { await window.storage.set('kt-user', JSON.stringify(userData)); } catch (err) { logError('register - save user', err, { userData: userData }); }
+          setUser(userData);
+          const newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
+          setPortfolio(newPortfolio);
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + userData.phone, JSON.stringify(newPortfolio)); } catch (err) { logError('register - save portfolio', err, { newPortfolio: newPortfolio }); }
+          await generateKTRankings(userData);
+          setScreen('game');
+        } catch (err) { logError('register', err, { formData: formData }); alert('❌ Registration failed: ' + err.message); }
+      })();
+    }
+    function generateKTRankings(userData) {
+      return (async function() {
+        try {
+          const symbolsParam = POPULAR_STOCKS.join(',');
+          const response = await fetch(API_BASE_URL + '/api/stocks?symbols=' + symbolsParam);
+          if (!response.ok) throw new Error('API returned ' + response.status + ': ' + response.statusText);
+          const data = await response.json();
+          setApiError(null);
+          const rankings = data.stocks
+            .filter(function(stock) { return stock.price != null; })
+            .map(function(stock) {
+              const baseline = KT_BASELINES[stock.symbol] || { sentiment: 60, technical: 60, leadership: 60 };
+              var sentiment = baseline.sentiment, technical = baseline.technical, leadership = baseline.leadership;
+              if (stock.changePercent != null) technical = Math.max(0, Math.min(100, technical + stock.changePercent * 2));
+              if (userData.riskTolerance === 'high') technical += 5; else if (userData.riskTolerance === 'low') leadership += 5;
+              if (userData.returnGoal === 'short') technical += 3; else leadership += 3;
+              const ktValue = sentiment * 0.4 + technical * 0.35 + leadership * 0.25;
+              return { symbol: stock.symbol, name: stock.name, ktValue: ktValue, sentiment: sentiment, technical: technical, leadership: leadership, price: stock.price, change: stock.change != null ? stock.change : 0, changePercent: stock.changePercent != null ? stock.changePercent : 0 };
+            });
+          rankings.sort(function(a, b) { return b.ktValue - a.ktValue });
+          setKtRankings(rankings);
+          return rankings;
+        } catch (err) {
+          logError('generateKTRankings', err, { userData: userData });
+          setApiError('Could not reach the stock API. Showing last known data.');
+          if (ktRankings.length > 0) return ktRankings;
+          return [];
+        }
+      })();
+    }
+    function updatePortfolioValues() {
+      if (!portfolio || !user) return;
+      (async function() {
+        try {
+          const heldSymbols = portfolio.holdings.map(function(h) { return h.symbol; });
+          var priceMap = {};
+          if (heldSymbols.length > 0) {
+            try {
+              const response = await fetch(API_BASE_URL + '/api/stocks?symbols=' + heldSymbols.join(','));
+              if (response.ok) {
+                const data = await response.json();
+                data.stocks.forEach(function(s) { if (s.price != null) priceMap[s.symbol] = s.price; });
+                setApiError(null);
+              }
+            } catch (fetchErr) { setApiError('Could not reach the stock API. Prices may be stale.'); }
+          }
+          const updatedHoldings = portfolio.holdings.map(function(holding) {
+            const newPrice = priceMap[holding.symbol] != null ? priceMap[holding.symbol] : holding.currentPrice;
+            return { symbol: holding.symbol, shares: holding.shares, purchasePrice: holding.purchasePrice, currentPrice: newPrice, value: newPrice * holding.shares, changePercent: ((newPrice - holding.purchasePrice) / holding.purchasePrice) * 100 };
+          });
+          const holdingsValue = updatedHoldings.reduce(function(sum, h) { return sum + h.value; }, 0);
+          const totalValue = portfolio.cash + holdingsValue;
+          const updatedPortfolio = { cash: portfolio.cash, holdings: updatedHoldings, totalValue: totalValue, startValue: portfolio.startValue, gameStarted: portfolio.gameStarted };
+          setPortfolio(updatedPortfolio);
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(updatedPortfolio)); } catch (err) { logError('updatePortfolioValues - save', err); }
+          await updateLeaderboard(user, updatedPortfolio);
+          if (totalValue <= 20) setScreen('gameOver');
+          await generateKTRankings(user);
+        } catch (err) { logError('updatePortfolioValues', err); }
+      })();
+    }
+    function buyStock(stock, numShares) {
+      (async function() {
+        try {
+          const canBuy = canBuyStock(stock, numShares, portfolio);
+          if (!canBuy.allowed) { alert(canBuy.reason); return; }
+          const cost = stock.price * numShares;
+          const existingHolding = portfolio.holdings.find(function(h) { return h.symbol === stock.symbol; });
+          var updatedHoldings;
+          if (existingHolding) {
+            updatedHoldings = portfolio.holdings.map(function(h) {
+              if (h.symbol !== stock.symbol) return h;
+              return { symbol: h.symbol, shares: h.shares + numShares, purchasePrice: ((h.purchasePrice * h.shares) + (stock.price * numShares)) / (h.shares + numShares), currentPrice: stock.price, value: (h.shares + numShares) * stock.price, changePercent: 0 };
+            });
+          } else {
+            updatedHoldings = portfolio.holdings.concat([{ symbol: stock.symbol, shares: numShares, purchasePrice: stock.price, currentPrice: stock.price, value: cost, changePercent: 0 }]);
+          }
+          const holdingsValue = updatedHoldings.reduce(function(sum, h) { return sum + h.value; }, 0);
+          const updatedPortfolio = { cash: portfolio.cash - cost, holdings: updatedHoldings, totalValue: portfolio.cash - cost + holdingsValue, startValue: portfolio.startValue, gameStarted: portfolio.gameStarted };
+          setPortfolio(updatedPortfolio);
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(updatedPortfolio)); } catch (err) { logError('buyStock - save', err); }
+          await updateLeaderboard(user, updatedPortfolio);
+          setSelectedStock(null);
+          setShares(1);
+        } catch (err) { logError('buyStock', err); alert('❌ Purchase failed: ' + err.message); }
+      })();
+    }
+    function sellStock(holding) {
+      (async function() {
+        try {
+          const saleValue = holding.currentPrice * holding.shares;
+          const updatedHoldings = portfolio.holdings.filter(function(h) { return h.symbol !== holding.symbol; });
+          const holdingsValue = updatedHoldings.reduce(function(sum, h) { return sum + h.value; }, 0);
+          const updatedPortfolio = { cash: portfolio.cash + saleValue, holdings: updatedHoldings, totalValue: portfolio.cash + saleValue + holdingsValue, startValue: portfolio.startValue, gameStarted: portfolio.gameStarted };
+          setPortfolio(updatedPortfolio);
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(updatedPortfolio)); } catch (err) { logError('sellStock - save', err, { holding: holding }); }
+          await updateLeaderboard(user, updatedPortfolio);
+        } catch (err) { logError('sellStock', err, { holding: holding }); alert('❌ Sale failed: ' + err.message); }
+      })();
+    }
+    function resetGame() {
+      if (!user) return;
+      (async function() {
+        try {
+          const newPortfolio = { cash: 10000, holdings: [], totalValue: 10000, startValue: 10000, gameStarted: false };
+          setPortfolio(newPortfolio);
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(newPortfolio)); } catch (err) { logError('resetGame - save', err); }
+          await generateKTRankings(user);
+          await updateLeaderboard(user, newPortfolio);
+          setScreen('game');
+        } catch (err) { logError('resetGame', err); alert('❌ Reset failed: ' + err.message); }
+      })();
+    }
+    function startGame() {
+      if (!portfolio || portfolio.holdings.length < MIN_HOLDINGS) { alert('📦 You need at least ' + MIN_HOLDINGS + ' stocks to start!'); return; }
+      if (portfolio.holdings.length > MAX_HOLDINGS) { alert('📦 You can\'t have more than ' + MAX_HOLDINGS + ' stocks!'); return; }
+      (async function() {
+        try {
+          const updatedPortfolio = { cash: portfolio.cash, holdings: portfolio.holdings, totalValue: portfolio.totalValue, startValue: portfolio.totalValue, gameStarted: true };
+          setPortfolio(updatedPortfolio);
+          if (window.storage) try { await window.storage.set('kt-portfolio-' + user.phone, JSON.stringify(updatedPortfolio)); } catch (err) { logError('startGame - save', err); }
+          alert('🎮 Game started with ' + portfolio.holdings.length + ' stocks! Prices update every 15 seconds. Good luck!');
+        } catch (err) { logError('startGame', err); alert('❌ Failed to start game: ' + err.message); }
+      })();
+    }
+
+    useEffect(function() { loadUserData(); loadLeaderboard(); }, []);
+    useEffect(function() {
+      if (user && screen === 'game') {
+        const interval = setInterval(function() { generateKTRankings(user); }, 86400000);
+        return function() { clearInterval(interval); };
+      }
+    }, [user, screen]);
+    useEffect(function() {
+      if (portfolio && screen === 'game' && portfolio.gameStarted) {
+        const interval = setInterval(function() { updatePortfolioValues(); }, 15000);
+        return function() { clearInterval(interval); };
+      }
+    }, [portfolio, screen]);
+
+    function DebugPanel() {
+      if (!debugMode) return null;
+      return e('div', { style: { position: 'fixed', top: '20px', right: '20px', width: '350px', maxHeight: '80vh', background: 'rgba(0,0,0,0.95)', color: '#0f0', borderRadius: '10px', padding: '15px', fontFamily: 'monospace', fontSize: '12px', overflowY: 'auto', zIndex: 10000, boxShadow: '0 0 20px rgba(0,255,0,0.3)' } },
+        e('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: '15px', borderBottom: '2px solid #0f0', paddingBottom: '10px' } },
+          e('h4', { style: { margin: 0, fontSize: '16px' } }, '🔧 Debug Panel'),
+          e('button', { onClick: function() { setDebugMode(false); }, style: { background: '#f00', color: 'white', border: 'none', width: '25px', height: '25px', borderRadius: '50%', cursor: 'pointer' } }, '✕')
+        ),
+        e('div', { style: { marginBottom: '15px', border: '1px solid #0f0', padding: '10px', borderRadius: '5px' } },
+          e('h5', { style: { margin: '0 0 8px 0', color: '#ff0', fontSize: '14px' } }, 'Screen State'),
+          e('div', null, screen)
+        ),
+        user ? e('div', { style: { marginBottom: '15px', border: '1px solid #0f0', padding: '10px', borderRadius: '5px' } },
+          e('h5', { style: { margin: '0 0 8px 0', color: '#ff0', fontSize: '14px' } }, 'User Data'),
+          e('pre', { style: { margin: 0, fontSize: '11px', overflowX: 'auto', whiteSpace: 'pre-wrap' } }, JSON.stringify(user, null, 2))
+        ) : null,
+        errors.length > 0 ? e('div', { style: { border: '1px solid #f00', padding: '10px', borderRadius: '5px' } },
+          e('h5', { style: { margin: '0 0 8px 0', color: '#ff0', fontSize: '14px' } }, 'Recent Errors (' + errors.length + ')'),
+          errors.slice(-3).map(function(err, i) {
+            return e('div', { key: i, style: { background: 'rgba(255,0,0,0.1)', padding: '8px', marginBottom: '8px', borderRadius: '3px', borderLeft: '3px solid #f00' } },
+              e('div', { style: { color: '#ff0', fontWeight: 'bold', marginBottom: '3px' } }, err.location),
+              e('div', { style: { color: '#f00', marginBottom: '3px' } }, err.error)
+            );
+          })
+        ) : null
+      );
+    }
+
+    function WelcomeScreen() {
+      return e('div', { style: { textAlign: 'center', padding: '40px 20px' } },
+        e('div', { style: { fontSize: '120px', marginBottom: '20px', animation: 'bounce 2s infinite' } }, '🚀'),
+        e('h1', { style: { fontSize: '48px', color: '#667eea', marginBottom: '10px', textShadow: '3px 3px 0 #ffd700' } }, 'KT Stock Game'),
+        e('p', { style: { fontSize: '24px', color: '#666', marginBottom: '40px' } }, 'Learn to invest with $10,000 play money!'),
+        e('div', { style: { background: '#f8f8f8', border: '3px solid #667eea', borderRadius: '20px', padding: '30px', marginBottom: '30px', textAlign: 'left', maxWidth: '600px', margin: '0 auto 30px auto' } },
+          e('h2', { style: { fontSize: '28px', color: '#667eea', marginBottom: '20px', textAlign: 'center' } }, '📋 The Rules (Just 3!)'),
+          e('div', { style: { fontSize: '18px', lineHeight: '1.8', color: '#333' } },
+            e('div', { style: { marginBottom: '20px', padding: '15px', background: 'white', borderRadius: '10px', border: '2px solid #667eea' } }, e('strong', { style: { color: '#667eea' } }, '1. Pick 4-10 US stocks'), e('div', { style: { fontSize: '16px', color: '#666', marginTop: '5px' } }, 'Build your portfolio with any US stocks')),
+            e('div', { style: { marginBottom: '20px', padding: '15px', background: 'white', borderRadius: '10px', border: '2px solid #667eea' } }, e('strong', { style: { color: '#667eea' } }, '2. Stay ≥97% invested'), e('div', { style: { fontSize: '16px', color: '#666', marginTop: '5px' } }, 'Keep cash low (whole shares only)')),
+            e('div', { style: { marginBottom: 0, padding: '15px', background: 'white', borderRadius: '10px', border: '2px solid #667eea' } }, e('strong', { style: { color: '#667eea' } }, '3. Max 25% per stock'), e('div', { style: { fontSize: '16px', color: '#666', marginTop: '5px' } }, 'No single stock can exceed 25% of your portfolio at purchase'))
+          )
+        ),
+        e('div', { style: { display: 'flex', justifyContent: 'center', gap: '20px', marginBottom: '40px', flexWrap: 'wrap' } },
+          e('div', { style: { background: '#ffd700', padding: '15px 30px', borderRadius: '20px', fontSize: '20px', fontWeight: 'bold', boxShadow: '0 5px 15px rgba(0,0,0,0.2)' } }, '📊 Real stocks'),
+          e('div', { style: { background: '#ffd700', padding: '15px 30px', borderRadius: '20px', fontSize: '20px', fontWeight: 'bold', boxShadow: '0 5px 15px rgba(0,0,0,0.2)' } }, '🎯 Smart KT rankings'),
+          e('div', { style: { background: '#ffd700', padding: '15px 30px', borderRadius: '20px', fontSize: '20px', fontWeight: 'bold', boxShadow: '0 5px 15px rgba(0,0,0,0.2)' } }, '🏆 Compete with friends')
+        ),
+        e('button', { onClick: function() { setScreen('register'); }, style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontFamily: 'Comic Sans MS, cursive', marginBottom: '20px' } }, "Let's Play! 🎮"),
+        e('div', { style: { marginTop: '40px', display: 'flex', flexDirection: 'column', gap: '10px' } },
+          e('button', { onClick: loadTestData, style: { background: '#333', color: 'white', border: 'none', padding: '12px 25px', borderRadius: '10px', fontSize: '16px', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive' } }, '🧪 Test Mode (Skip Registration)'),
+          e('button', { onClick: function() { setDebugMode(!debugMode); }, style: { background: '#333', color: 'white', border: 'none', padding: '12px 25px', borderRadius: '10px', fontSize: '16px', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive' } }, debugMode ? '🔧 Hide Debug Panel' : '🔧 Show Debug Panel')
+        )
+      );
+    }
+
+    function RegisterScreen() {
+      const [formData, setFormData] = useState({ firstName: '', lastName: '', phone: '', location: '', riskTolerance: 'medium', preferredSector: 'Technology', returnGoal: 'long' });
+      function handleSubmit(ev) {
+        ev.preventDefault();
+        if (!formData.phone.match(/^\d{10}$/)) { alert('📱 Please enter a 10-digit phone number'); return; }
+        register(formData);
+      }
+      return e('div', null,
+        e('h2', { style: { fontSize: '36px', color: '#667eea', marginBottom: '30px', textAlign: 'center' } }, '👋 Let\'s Get Started!'),
+        e('form', { onSubmit: handleSubmit },
+          e('div', { style: { marginBottom: '25px' } },
+            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, 'First Name'),
+            e('input', { type: 'text', required: true, value: formData.firstName, onChange: function(ev) { setFormData(Object.assign({}, formData, { firstName: ev.target.value })); }, placeholder: 'Your first name', style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } })
+          ),
+          e('div', { style: { marginBottom: '25px' } },
+            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, 'Last Name'),
+            e('input', { type: 'text', required: true, value: formData.lastName, onChange: function(ev) { setFormData(Object.assign({}, formData, { lastName: ev.target.value })); }, placeholder: 'Your last name', style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } })
+          ),
+          e('div', { style: { marginBottom: '25px' } },
+            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '📱 Phone Number'),
+            e('input', { type: 'tel', required: true, value: formData.phone, onChange: function(ev) { setFormData(Object.assign({}, formData, { phone: ev.target.value.replace(/\D/g, '') })); }, placeholder: '1234567890', maxLength: 10, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } })
+          ),
+          e('div', { style: { marginBottom: '25px' } },
+            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '🌎 State or Country'),
+            e('input', { type: 'text', required: true, value: formData.location, onChange: function(ev) { setFormData(Object.assign({}, formData, { location: ev.target.value })); }, placeholder: 'e.g., California or USA', style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } })
+          ),
+          e('div', { style: { marginBottom: '25px' } },
+            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '🎲 Risk Tolerance'),
+            e('select', { value: formData.riskTolerance, onChange: function(ev) { setFormData(Object.assign({}, formData, { riskTolerance: ev.target.value })); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } },
+              e('option', { value: 'low' }, '😌 Low - Play it safe'),
+              e('option', { value: 'medium' }, '😊 Medium - Balanced'),
+              e('option', { value: 'high' }, '🚀 High - Go big!')
+            )
+          ),
+          e('div', { style: { marginBottom: '25px' } },
+            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '🏭 Favorite Sector'),
+            e('select', { value: formData.preferredSector, onChange: function(ev) { setFormData(Object.assign({}, formData, { preferredSector: ev.target.value })); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } },
+              SECTORS.map(function(sector) { return e('option', { key: sector, value: sector }, sector); })
+            )
+          ),
+          e('div', { style: { marginBottom: '25px' } },
+            e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '⏰ Investment Goal'),
+            e('select', { value: formData.returnGoal, onChange: function(ev) { setFormData(Object.assign({}, formData, { returnGoal: ev.target.value })); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '18px', fontFamily: 'Comic Sans MS, cursive' } },
+              e('option', { value: 'short' }, '⚡ Short Term (under 6 months)'),
+              e('option', { value: 'long' }, '🌱 Long Term (over 12 months)')
+            )
+          ),
+          e('button', { type: 'submit', style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontFamily: 'Comic Sans MS, cursive', width: '100%' } }, 'Start Playing! 🎉')
+        )
+      );
+    }
+
+    function GameScreen() {
+      const returnPercent = ((portfolio.totalValue - portfolio.startValue) / portfolio.startValue) * 100;
+      const holdingsValue = portfolio.holdings.reduce(function(sum, h) { return sum + h.value; }, 0);
+      return e('div', null,
+        e('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' } },
+          e('h2', { style: { fontSize: '32px', color: '#667eea' } }, '👋 Hi ' + user.firstName + '!'),
+          e('div', { style: { display: 'flex', gap: '10px' } },
+            e('button', { onClick: function() { setDebugMode(!debugMode); }, style: { background: '#333', color: 'white', border: 'none', width: '45px', height: '45px', borderRadius: '50%', fontSize: '20px', cursor: 'pointer' } }, '🔧'),
+            e('button', { onClick: function() { setShowLeaderboard(!showLeaderboard); }, style: { background: '#ffd700', border: 'none', padding: '15px 30px', borderRadius: '20px', fontSize: '20px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive' } }, '🏆 Leaderboard')
+          )
+        ),
+        apiError ? e('div', { style: { background: '#fff3e0', border: '2px solid #ff9800', borderRadius: '15px', padding: '15px 20px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '12px' } },
+          e('span', { style: { fontSize: '24px' } }, '⚠️'),
+          e('div', { style: { flex: 1, fontSize: '14px', color: '#e65100' } }, apiError),
+          e('button', { onClick: function() { setApiError(null); }, style: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#e65100' } }, '✕')
+        ) : null,
+        e('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', marginBottom: '20px' } },
+          e('div', { style: { background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', padding: '20px', borderRadius: '20px', textAlign: 'center', color: 'white' } }, e('div', { style: { fontSize: '14px', opacity: 0.9 } }, '💰 Cash'), e('div', { style: { fontSize: '24px', fontWeight: 'bold' } }, '$' + portfolio.cash.toFixed(2))),
+          e('div', { style: { background: 'linear-gradient(135deg, #ee0979 0%, #ff6a00 100%)', padding: '20px', borderRadius: '20px', textAlign: 'center', color: 'white' } }, e('div', { style: { fontSize: '14px', opacity: 0.9 } }, '📈 Stocks'), e('div', { style: { fontSize: '24px', fontWeight: 'bold' } }, '$' + holdingsValue.toFixed(2))),
+          e('div', { style: { background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', padding: '20px', borderRadius: '20px', textAlign: 'center', color: 'white' } }, e('div', { style: { fontSize: '14px', opacity: 0.9 } }, '💎 Total'), e('div', { style: { fontSize: '24px', fontWeight: 'bold' } }, '$' + portfolio.totalValue.toFixed(2))),
+          e('div', { style: { background: returnPercent >= 0 ? 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' : 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)', padding: '20px', borderRadius: '20px', textAlign: 'center', color: 'white' } }, e('div', { style: { fontSize: '14px', opacity: 0.9 } }, '📊 Return'), e('div', { style: { fontSize: '24px', fontWeight: 'bold' } }, (returnPercent >= 0 ? '📈' : '📉') + ' ' + returnPercent.toFixed(2) + '%'))
+        ),
+        !portfolio.gameStarted ? e('div', { style: { background: '#ffd700', padding: '20px', borderRadius: '20px', marginBottom: '20px', border: '3px solid #667eea' } },
+          e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: '#333', marginBottom: '10px' } }, '🎯 Select ' + MIN_HOLDINGS + '-' + MAX_HOLDINGS + ' stocks to start! (' + portfolio.holdings.length + '/' + MAX_HOLDINGS + ')'),
+          portfolio.holdings.length >= MIN_HOLDINGS && portfolio.holdings.length <= MAX_HOLDINGS ? e('button', { onClick: startGame, style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '15px 40px', borderRadius: '25px', fontSize: '24px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive', boxShadow: '0 5px 15px rgba(0,0,0,0.3)', animation: 'pulse 2s infinite' } }, '🚀 START GAME! 🚀') : null
+        ) : null,
+        portfolio.gameStarted ? e('div', null,
+          e('div', { style: { background: '#11998e', padding: '15px', borderRadius: '15px', marginBottom: '10px', color: 'white' } }, e('div', { style: { fontSize: '18px', fontWeight: 'bold', textAlign: 'center' } }, '⚡ Game Active! Prices updating every 15 seconds')),
+          (function() {
+            const investedPct = calculateInvestedPct(portfolio);
+            const isCompliant = investedPct >= MIN_INVESTED_PCT;
+            return e('div', { style: { background: isCompliant ? '#e8f5e9' : '#fff3e0', padding: '15px', borderRadius: '15px', marginBottom: '20px', border: '3px solid ' + (isCompliant ? '#4caf50' : '#ff9800') } },
+              e('div', { style: { fontSize: '16px', fontWeight: 'bold', color: '#333', marginBottom: '5px' } }, '💼 Invested: ' + investedPct.toFixed(1) + '% ' + (isCompliant ? '✅' : '⚠️')),
+              !isCompliant ? e('div', { style: { fontSize: '14px', color: '#f57c00' } }, 'Target: ≥' + MIN_INVESTED_PCT + '% invested (keep cash low!)') : null
+            );
+          })()
+        ) : null,
+        e('div', { style: { marginBottom: '30px', background: '#f8f8f8', padding: '25px', borderRadius: '20px', border: '3px solid #667eea' } },
+          e('h3', { style: { fontSize: '24px', color: '#667eea', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' } }, '🔍 Search Any Stock'),
+          e('div', { style: { display: 'flex', gap: '10px' } },
+            e('input', { ref: searchInputRef, type: 'text', placeholder: 'Type ticker symbol (e.g., AAPL, TSLA, GOOG...)', defaultValue: '', onKeyPress: function(ev) { if (ev.key === 'Enter') handleSearch(); }, style: { flex: 1, padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '20px', fontFamily: 'Comic Sans MS, cursive' } }),
+            e('button', { onClick: function() { handleSearch(); }, style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '15px 30px', borderRadius: '15px', fontSize: '20px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive', whiteSpace: 'nowrap' } }, '🔍 Search')
+          ),
+          searchResults.length > 0 ? e('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '15px' } }, searchResults.map(function(stock) {
+            if (stock.notFound) return e('div', { key: stock.symbol, style: { background: '#fff3e0', padding: '20px', borderRadius: '15px', border: '2px solid #ff9800' } }, e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: '#f57c00', marginBottom: '10px' } }, '❌ "' + stock.symbol + '" Not Found'), e('div', { style: { fontSize: '14px', color: '#666', lineHeight: '1.5' } }, stock.message));
+            return e('div', { key: stock.symbol, onClick: function() { setSelectedStock(stock); setSearchResults([]); if (searchInputRef.current) searchInputRef.current.value = ''; }, style: { display: 'flex', alignItems: 'center', gap: '15px', background: 'white', padding: '15px', borderRadius: '15px', cursor: 'pointer', border: '2px solid #667eea' } },
+              e('div', { style: { flex: 1 } }, e('div', { style: { fontSize: '24px', fontWeight: 'bold', color: '#667eea' } }, stock.symbol, e('span', { style: { fontSize: '16px', color: '#999', fontWeight: 'normal', marginLeft: '8px' } }, COMPANY_NAMES[stock.symbol] || '')), e('div', { style: { fontSize: '16px', color: '#666' } }, '$' + stock.price.toFixed(2))),
+              e('div', { style: { flex: 1 } }, e('div', { style: { fontSize: '16px', fontWeight: 'bold', color: '#667eea', marginBottom: '5px' } }, 'KT: ' + stock.ktValue.toFixed(0)), e('div', { style: { background: '#e0e0e0', height: '10px', borderRadius: '5px', overflow: 'hidden' } }, e('div', { style: { background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)', height: '100%', width: stock.ktValue + '%' } }))),
+              e('div', { style: { fontSize: '18px', fontWeight: 'bold', color: '#667eea' } }, 'Click to Buy →')
+            );
+          })) : null
+        ),
+        showLeaderboard ? e('div', { style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' } },
+          e('div', { style: { background: 'white', borderRadius: '30px', padding: '30px', maxWidth: '500px', width: '100%', position: 'relative', maxHeight: '90vh', overflowY: 'auto' } },
+            e('button', { onClick: function() { setShowLeaderboard(false); }, style: { position: 'absolute', top: '15px', right: '15px', background: '#ff6a00', color: 'white', border: 'none', width: '40px', height: '40px', borderRadius: '50%', fontSize: '24px', cursor: 'pointer', fontWeight: 'bold' } }, '✕'),
+            e('h3', { style: { fontSize: '32px', color: '#667eea', marginBottom: '20px', textAlign: 'center' } }, '🏆 Top Players'),
+            e('div', null, leaderboard.length === 0 ? e('div', { style: { textAlign: 'center', padding: '40px', color: '#666', fontSize: '18px' } }, 'Be the first on the leaderboard!') : leaderboard.map(function(entry, index) {
+              return e('div', { key: entry.phone, style: { display: 'flex', alignItems: 'center', gap: '15px', padding: '15px', background: entry.phone === user.phone ? '#ffd700' : '#f8f8f8', marginBottom: '10px', borderRadius: '15px', border: entry.phone === user.phone ? '3px solid #667eea' : 'none' } },
+                e('div', { style: { fontSize: '24px', fontWeight: 'bold', color: '#667eea', minWidth: '40px' } }, '#' + (index + 1)),
+                e('div', { style: { flex: 1, fontSize: '20px', fontWeight: 'bold' } }, entry.name),
+                e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: entry.return >= 0 ? '#11998e' : '#eb3349' } }, (entry.return >= 0 ? '+' : '') + entry.return.toFixed(2) + '%')
+              );
+            }))
+          )
+        ) : null,
+        e('div', { style: { marginBottom: '30px' } },
+          e('h3', { style: { fontSize: '28px', color: '#667eea', marginBottom: '15px' } }, '📦 My Stocks (' + portfolio.holdings.length + '/10)'),
+          portfolio.holdings.length === 0 ? e('div', { style: { textAlign: 'center', padding: '40px', background: '#f0f0f0', borderRadius: '20px', fontSize: '20px', color: '#666' } }, e('p', null, "You don't own any stocks yet!"), e('p', null, '👇 Check out the KT Rankings below to get started')) : e('div', null, portfolio.holdings.map(function(holding) {
+            const positionPct = getPositionPct(holding, portfolio.totalValue);
+            const isOverLimit = positionPct > MAX_POSITION_PCT;
+            return e('div', { key: holding.symbol, style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8f8f8', padding: '20px', borderRadius: '20px', border: '3px solid ' + (isOverLimit ? '#ff9800' : '#667eea') } },
+              e('div', null, e('div', { style: { fontSize: '24px', fontWeight: 'bold', color: '#667eea' } }, holding.symbol, e('span', { style: { fontSize: '16px', color: '#999', fontWeight: 'normal', marginLeft: '8px' } }, COMPANY_NAMES[holding.symbol] || '')), e('div', { style: { fontSize: '16px', color: '#666' } }, holding.shares + ' shares'), e('div', { style: { fontSize: '14px', color: isOverLimit ? '#f57c00' : '#999', fontWeight: isOverLimit ? 'bold' : 'normal' } }, positionPct.toFixed(1) + '% of portfolio ' + (isOverLimit ? '⚠️' : ''))),
+              e('div', { style: { textAlign: 'right' } }, e('div', { style: { fontSize: '20px', fontWeight: 'bold' } }, '$' + holding.currentPrice.toFixed(2)), e('div', { style: { fontSize: '16px', color: holding.changePercent >= 0 ? '#11998e' : '#eb3349' } }, (holding.changePercent >= 0 ? '📈' : '📉') + ' ' + holding.changePercent.toFixed(2) + '%')),
+              e('button', { onClick: function() { sellStock(holding); }, style: { background: '#ff6a00', color: 'white', border: 'none', padding: '12px 25px', borderRadius: '15px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', fontFamily: 'Comic Sans MS, cursive' } }, 'Sell All 💵')
+            );
+          }))
+        ),
+        e('div', null,
+          e('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' } },
+            e('h3', { style: { fontSize: '28px', color: '#667eea', margin: 0 } }, '⭐ Top KT Stocks'),
+            e('div', { style: { background: '#f0f0f0', padding: '8px 15px', borderRadius: '10px', fontSize: '14px', color: '#667eea', fontWeight: 'bold', border: '2px solid #667eea' } }, '🔄 Rankings refresh daily')
+          ),
+          e('p', { style: { fontSize: '14px', color: '#666', marginBottom: '5px', textAlign: 'center' } }, 'KT Score = Sentiment (40%) + Technicals (35%) + Leadership (25%)'),
+          e('p', { style: { fontSize: '12px', color: '#999', marginBottom: '15px', textAlign: 'center', fontStyle: 'italic' } }, 'Showing buyable stocks only (max 25% of portfolio per position)'),
+          e('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '500px', overflowY: 'auto' } }, ktRankings.filter(function(stock) { return isBuyable(stock, portfolio.totalValue); }).slice(0, 20).map(function(stock, index) {
+            return e('div', { key: stock.symbol, onClick: function() { setSelectedStock(stock); }, style: { display: 'flex', alignItems: 'center', gap: '15px', background: '#f8f8f8', padding: '15px', borderRadius: '15px', cursor: 'pointer', border: '2px solid transparent' } },
+              e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: '#667eea', minWidth: '40px' } }, '#' + (index + 1)),
+              e('div', { style: { flex: 1 } }, e('div', { style: { fontSize: '20px', fontWeight: 'bold', color: '#333' } }, stock.symbol, e('span', { style: { fontSize: '14px', color: '#999', fontWeight: 'normal', marginLeft: '8px' } }, stock.name || COMPANY_NAMES[stock.symbol] || '')), e('div', { style: { fontSize: '16px', color: '#666' } }, '$' + stock.price.toFixed(2))),
+              e('div', { style: { flex: 2 } }, e('div', { style: { fontSize: '16px', fontWeight: 'bold', color: '#667eea', marginBottom: '5px' } }, 'KT: ' + stock.ktValue.toFixed(0)), e('div', { style: { background: '#e0e0e0', height: '10px', borderRadius: '5px', overflow: 'hidden' } }, e('div', { style: { background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)', height: '100%', width: stock.ktValue + '%', transition: 'width 0.3s' } })))
+            );
+          }))
+        ),
+        selectedStock ? e('div', { style: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' } },
+          e('div', { style: { background: 'white', borderRadius: '30px', padding: '30px', maxWidth: '500px', width: '100%', position: 'relative' } },
+            e('button', { onClick: function() { setSelectedStock(null); }, style: { position: 'absolute', top: '15px', right: '15px', background: '#ff6a00', color: 'white', border: 'none', width: '40px', height: '40px', borderRadius: '50%', fontSize: '24px', cursor: 'pointer', fontWeight: 'bold' } }, '✕'),
+            e('h3', { style: { fontSize: '32px', color: '#667eea', marginBottom: '20px', textAlign: 'center' } }, '📊 ' + selectedStock.symbol, e('div', { style: { fontSize: '18px', color: '#999', fontWeight: 'normal', marginTop: '5px' } }, COMPANY_NAMES[selectedStock.symbol] || '')),
+            e('div', { style: { marginBottom: '30px' } },
+              e('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '15px', background: '#f8f8f8', marginBottom: '10px', borderRadius: '15px', fontSize: '20px' } }, e('span', null, 'Price:'), e('span', { style: { fontSize: '28px', fontWeight: 'bold', color: '#667eea' } }, '$' + selectedStock.price.toFixed(2))),
+              e('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '15px', background: '#f8f8f8', marginBottom: '10px', borderRadius: '15px', fontSize: '20px' } }, e('span', null, 'KT Score:'), e('span', { style: { fontSize: '28px', fontWeight: 'bold', color: '#ffd700' } }, selectedStock.ktValue.toFixed(0) + '/100')),
+              e('div', { style: { marginTop: '20px' } },
+                e('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '10px', background: '#f0f0f0', marginBottom: '8px', borderRadius: '10px', fontSize: '18px' } }, e('span', null, '😊 Sentiment'), e('span', null, selectedStock.sentiment.toFixed(0))),
+                e('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '10px', background: '#f0f0f0', marginBottom: '8px', borderRadius: '10px', fontSize: '18px' } }, e('span', null, '📈 Technical'), e('span', null, selectedStock.technical.toFixed(0))),
+                e('div', { style: { display: 'flex', justifyContent: 'space-between', padding: '10px', background: '#f0f0f0', marginBottom: '8px', borderRadius: '10px', fontSize: '18px' } }, e('span', null, '👑 Leadership'), e('span', null, selectedStock.leadership.toFixed(0)))
+              )
+            ),
+            e('div', null,
+              e('label', { style: { display: 'block', fontSize: '20px', fontWeight: 'bold', marginBottom: '10px' } }, 'How many shares?'),
+              e('input', { key: selectedStock.symbol, type: 'text', inputMode: 'numeric', placeholder: 'Enter number of shares', value: shares > 0 ? shares : '', onChange: function(ev) { var value = ev.target.value.replace(/\D/g, ''); setShares(value === '' ? 0 : parseInt(value, 10)); }, style: { width: '100%', padding: '15px', border: '3px solid #667eea', borderRadius: '15px', fontSize: '20px', marginBottom: '15px', fontFamily: 'Comic Sans MS, cursive' } }),
+              e('div', { style: { fontSize: '24px', fontWeight: 'bold', textAlign: 'center', color: '#667eea', marginBottom: '20px' } }, 'Total: $' + (shares > 0 ? (selectedStock.price * shares).toFixed(2) : '0.00')),
+              e('button', {
+                onClick: function() { buyStock(selectedStock, shares); },
+                disabled: shares === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * shares,
+                style: { background: (shares === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * shares) ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: (shares === 0 || portfolio.holdings.length >= 10 || portfolio.cash < selectedStock.price * shares) ? 'not-allowed' : 'pointer', fontFamily: 'Comic Sans MS, cursive', width: '100%' }
+              }, portfolio.holdings.length >= 10 ? '❌ Max 10 Stocks' : shares === 0 ? 'Enter shares to buy' : 'Buy ' + shares + ' shares! 💰')
+            )
+          )
+        ) : null
+      );
+    }
+
+    function GameOverScreen() {
+      const returnPct = ((portfolio.totalValue - portfolio.startValue) / portfolio.startValue) * 100;
+      return e('div', { style: { textAlign: 'center', padding: '40px 20px' } },
+        e('div', { style: { fontSize: '120px', marginBottom: '20px' } }, '😢'),
+        e('h1', { style: { fontSize: '48px', color: '#667eea', marginBottom: '10px' } }, 'Game Over!'),
+        e('p', { style: { fontSize: '24px', color: '#666', marginBottom: '40px' } }, 'Your portfolio dropped below $20'),
+        e('div', { style: { background: '#f8f8f8', padding: '30px', borderRadius: '20px', marginBottom: '30px' } },
+          e('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '24px', marginBottom: '15px' } }, e('span', null, 'Final Value:'), e('span', { style: { fontWeight: 'bold' } }, '$' + portfolio.totalValue.toFixed(2))),
+          e('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '24px' } }, e('span', null, 'Total Return:'), e('span', { style: { fontWeight: 'bold', color: returnPct >= 0 ? '#11998e' : '#eb3349' } }, returnPct.toFixed(2) + '%'))
+        ),
+        e('button', { onClick: resetGame, style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', border: 'none', padding: '20px 50px', borderRadius: '50px', fontSize: '28px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', fontFamily: 'Comic Sans MS, cursive' } }, 'Play Again! 🔄')
+      );
+    }
+
+    return e('div', { style: { fontFamily: 'Comic Sans MS, Chalkboard SE, Comic Neue, cursive', minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '20px' } },
+      e('div', { style: { maxWidth: '800px', margin: '0 auto', background: 'white', borderRadius: '30px', padding: '30px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' } },
+        screen === 'welcome' ? e(WelcomeScreen) : null,
+        screen === 'register' ? e(RegisterScreen) : null,
+        screen === 'game' ? e(GameScreen) : null,
+        screen === 'gameOver' ? e(GameOverScreen) : null
+      ),
+      e(DebugPanel)
+    );
+  }
+
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(e(KT_STOCK_GAME));
+})();
+  </script>
 </body>
 </html>
